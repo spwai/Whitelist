@@ -2,9 +2,13 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <wininet.h>
+#include <nlohmann/json.hpp>
 
 #include <MinHook.h>
 #include <libhat.hpp>
+
+#pragma comment(lib, "wininet.lib")
 
 FILE* g_Console = nullptr;
 HMODULE g_Module = nullptr;
@@ -15,6 +19,9 @@ using ActorGetNameTagFn = void** (__fastcall*)(__int64 a1);
 GameModeAttackFn g_GameModeAttack = nullptr;
 ActorGetNameTagFn g_ActorGetNameTag = nullptr;
 GameModeAttackFn g_OriginalGameModeAttack = nullptr;
+
+std::vector<std::string> g_msrPlayers;
+std::vector<std::string> g_qtPlayers;
 
 std::string sanitizeName(const std::string& name) {
     std::string sanitized;
@@ -80,9 +87,9 @@ std::string extractNameSafely(void** nameTag) {
         if (reinterpret_cast<uintptr_t>(unionPtr) > 0x10000) {
             if (IsBadReadPtr(unionPtr, 1) == FALSE) {
                 const char* potentialStr = reinterpret_cast<const char*>(unionPtr);
-                size_t len = strnlen(potentialStr, 256);
+                size_t len = strnlen(potentialStr, 1024);
                 
-                if (len > 0 && len < 256) {
+                if (len > 0) {
                     int printableCount = 0;
                     
                     for (size_t i = 0; i < len; i++) {
@@ -103,9 +110,106 @@ std::string extractNameSafely(void** nameTag) {
                 }
             }
         }
+        
+        if (reinterpret_cast<uintptr_t>(unionPtr) > 0x10000) {
+            if (IsBadReadPtr(unionPtr, sizeof(void*)) == FALSE) {
+                const char** stringPtr = reinterpret_cast<const char**>(unionPtr);
+                if (stringPtr && *stringPtr && IsBadReadPtr(*stringPtr, 1) == FALSE) {
+                    const char* potentialStr = *stringPtr;
+                    size_t len = strnlen(potentialStr, 1024);
+                    
+                    if (len > 0) {
+                        int printableCount = 0;
+                        
+                        for (size_t i = 0; i < len; i++) {
+                            unsigned char ch = potentialStr[i];
+                            if (isprint(ch) || ch == 0xC2 || ch == 0xA7 || ch == 0xC3 || ch == 0xBA || ch == 0xE2 || ch == 0x94) {
+                                printableCount++;
+                            }
+                        }
+                        
+                        if (printableCount > len / 2) {
+                            std::string name(potentialStr, len);
+                            name.erase(std::remove(name.begin(), name.end(), '§'), name.end());
+                            
+                            if (!name.empty()) {
+                                return name;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     return "";
+}
+
+std::string downloadJson(const std::string& url) {
+    std::string result;
+    HINTERNET hInternet = InternetOpenA("Spwai", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+    
+    if (hInternet) {
+        HINTERNET hUrl = InternetOpenUrlA(hInternet, url.c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
+        
+        if (hUrl) {
+            char buffer[1024];
+            DWORD bytesRead;
+            
+            while (InternetReadFile(hUrl, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
+                buffer[bytesRead] = 0;
+                result += buffer;
+            }
+            
+            InternetCloseHandle(hUrl);
+        }
+        
+        InternetCloseHandle(hInternet);
+    }
+    
+    return result;
+}
+
+void loadPlayerLists() {
+    std::cout << "Loading player lists from database..." << std::endl;
+    
+    std::string jsonData = downloadJson("https://spwai.github.io/db/igns.json");
+    
+    if (!jsonData.empty()) {
+        try {
+            auto json = nlohmann::json::parse(jsonData);
+            
+            if (json.contains("msr") && json["msr"].is_array()) {
+                g_msrPlayers.clear();
+                for (const auto& player : json["msr"]) {
+                    g_msrPlayers.push_back(player.get<std::string>());
+                }
+                std::cout << "Loaded " << g_msrPlayers.size() << " MSR players" << std::endl;
+            }
+            
+            if (json.contains("qt") && json["qt"].is_array()) {
+                g_qtPlayers.clear();
+                for (const auto& player : json["qt"]) {
+                    g_qtPlayers.push_back(player.get<std::string>());
+                }
+                std::cout << "Loaded " << g_qtPlayers.size() << " QT players" << std::endl;
+            }
+            
+        } catch (const std::exception& e) {
+            std::cout << "Error parsing JSON: " << e.what() << std::endl;
+        }
+    } else {
+        std::cout << "Failed to download player database" << std::endl;
+    }
+}
+
+bool isPlayerInList(const std::string& sanitizedName, const std::vector<std::string>& playerList) {
+    for (const auto& player : playerList) {
+        if (sanitizedName == player) {
+            return true;
+        }
+    }
+    return false;
 }
 
 __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
@@ -121,6 +225,11 @@ __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
                 std::string sanitizedName = sanitizeName(actorName);
                 std::cout << "Actor name: " << actorName << std::endl;
                 std::cout << "Sanitized: " << sanitizedName << std::endl;
+                
+                if (isPlayerInList(sanitizedName, g_msrPlayers)) {
+                    std::cout << "Attack cancelled for MSR player: " << sanitizedName << std::endl;
+                    return 0;
+                }        
             } else {
                 std::cout << "Actor name: (empty or invalid)" << std::endl;
             }
@@ -194,10 +303,8 @@ void initializeHooks() {
 void initialize() {
     createConsole();
     scanSignatures();
+    loadPlayerLists();
     initializeHooks();
-    
-    std::cout << "Initialization complete. Press any key to continue..." << std::endl;
-    std::cin.get();
 }
 
 void cleanup() {
