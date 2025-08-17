@@ -40,7 +40,7 @@ std::string sanitizeName(const std::string& name) {
             sanitized += c;
         }
     }
-    
+    std::transform(sanitized.begin(), sanitized.end(), sanitized.begin(), ::tolower);
     return sanitized;
 }
 
@@ -136,7 +136,10 @@ void loadLists() {
             if (json.contains("msr") && json["msr"].is_array()) {
                 g_msrPlayers.clear();
                 for (const auto& player : json["msr"]) {
-                    g_msrPlayers.push_back(player.get<std::string>());
+                    std::string playerName = player.get<std::string>();
+                    // Convert to lowercase when loading
+                    std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
+                    g_msrPlayers.push_back(playerName);
                 }
                 std::cout << "Loaded " << g_msrPlayers.size() << " MSR players" << std::endl;
             }
@@ -144,7 +147,10 @@ void loadLists() {
             if (json.contains("qt") && json["qt"].is_array()) {
                 g_qtPlayers.clear();
                 for (const auto& player : json["qt"]) {
-                    g_qtPlayers.push_back(player.get<std::string>());
+                    std::string playerName = player.get<std::string>();
+                    // Convert to lowercase when loading
+                    std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
+                    g_qtPlayers.push_back(playerName);
                 }
                 std::cout << "Loaded " << g_qtPlayers.size() << " QT players" << std::endl;
             }
@@ -158,5 +164,6 @@ void loadLists() {
 }
 
 bool isInList(const std::string& sanitizedName, const std::vector<std::string>& playerList) {
+    // Both sanitizedName and playerList entries are already lowercase
     return std::find(playerList.begin(), playerList.end(), sanitizedName) != playerList.end();
 }

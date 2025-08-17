@@ -44,7 +44,7 @@ void createConsole() {
     AllocConsole();
     freopen_s(&g_Console, "CONOUT$", "w", stdout);
     freopen_s(&g_Console, "CONIN$", "r", stdin);
-    SetConsoleTitleA("Spwai - Signature Scanner");
+    SetConsoleTitleA("Spwai");
 }
 
 void scanSignatures() {
@@ -100,7 +100,7 @@ void initializeHooks() {
 }
 
 void initialize() {
-    createConsole();
+    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();
