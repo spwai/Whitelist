@@ -21,8 +21,6 @@ std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
 __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
-    std::cout << "GameMode::attack called!" << std::endl;
-    
     if (g_ActorGetNameTag) {
         void** nameTag = g_ActorGetNameTag(a2);
         
@@ -31,18 +29,11 @@ __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
             
             if (!actorName.empty()) {
                 std::string sanitizedName = sanitizeName(actorName);
-                std::cout << "Actor name: " << actorName << std::endl;
-                std::cout << "Sanitized: " << sanitizedName << std::endl;
                 
                 if (isInList(sanitizedName, g_msrPlayers)) {
-                    std::cout << "Attack cancelled for MSR player: " << sanitizedName << std::endl;
                     return 0;
-                }        
-            } else {
-                std::cout << "Actor name: (empty or invalid)" << std::endl;
+                }
             }
-        } else {
-            std::cout << "Failed to get actor name tag" << std::endl;
         }
     }
     
@@ -98,7 +89,7 @@ void initializeHooks() {
     if (g_GameModeAttack) {
         if (MH_CreateHook(g_GameModeAttack, &hookedGameModeAttack, reinterpret_cast<LPVOID*>(&g_OriginalGameModeAttack)) == MH_OK) {
             if (MH_EnableHook(g_GameModeAttack) == MH_OK) {
-                std::cout << "GameMode::attack hook enabled" << std::endl;
+                // Hook successfully enabled
             } else {
                 std::cout << "Failed to enable GameMode::attack hook" << std::endl;
             }
