@@ -18,6 +18,7 @@ std::string sanitizeName(const std::string& name) {
     std::string sanitized;
     sanitized.reserve(name.length());
     
+    // Remove Minecraft color codes (§ followed by a character)
     std::string tempName = name;
     size_t pos = 0;
     
@@ -29,8 +30,16 @@ std::string sanitizeName(const std::string& name) {
         }
     }
     
+    // Remove newlines (as shown in the client code)
+    pos = 0;
+    while ((pos = tempName.find('\n', pos)) != std::string::npos) {
+        tempName.erase(pos, 1);
+    }
+    
+    // Keep only alphanumeric characters, spaces, and common Minecraft name characters
     for (char c : tempName) {
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ') {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || 
+            c == ' ' || c == '_' || c == '-') {
             sanitized += c;
         }
     }
@@ -39,126 +48,94 @@ std::string sanitizeName(const std::string& name) {
 }
 
 std::string extractName(void** nameTag) {
-    if (!nameTag) return "";
+    if (!nameTag || *nameTag == nullptr) return "";
+    
+    std::cout << "[DEBUG] nameTag: " << nameTag << ", *nameTag: " << *nameTag << std::endl;
     
     if (IsBadReadPtr(nameTag, sizeof(void*)) == FALSE && *nameTag) {
-        void* unionPtr = *nameTag;
+        uintptr_t ptrValue = reinterpret_cast<uintptr_t>(*nameTag);
         
-        char buffer[17] = { 0 };
+        std::cout << "[DEBUG] ptrValue: 0x" << std::hex << ptrValue << std::dec << std::endl;
         
-        if (IsBadReadPtr(unionPtr, 16) == FALSE) {
-            memcpy(buffer, unionPtr, 16);
-            
-            bool validInline = true;
-            int validLength = 0;
-            
-            for (int i = 0; i < 16; i++) {
-                if (buffer[i] == 0) {
-                    validLength = i;
-                    break;
-                }
-                
-                unsigned char ch = buffer[i];
-                if (!(isprint(ch) || ch == 0xC2 || ch == 0xA7 || ch == 0xC3 || ch == 0xBA || ch == 0xE2 || ch == 0x94)) {
-                    validInline = false;
-                    break;
-                }
-                validLength = i + 1;
-            }
-            
-            if (validInline && validLength > 0 && validLength < 16) {
-                std::string name(buffer, validLength);
-                name.erase(std::remove(name.begin(), name.end(), '§'), name.end());
-                
-                if (!name.empty()) {
-                    return name;
-                }
-            }
+        // Check if it's an inline integer (not a valid pointer)
+        if (ptrValue < 0x1000) {
+            std::cout << "[DEBUG] ptrValue too low" << std::endl;
+            return "";
         }
         
-        if (reinterpret_cast<uintptr_t>(unionPtr) > 0x10000) {
-            if (IsBadReadPtr(unionPtr, 1) == FALSE) {
-                const char* potentialStr = reinterpret_cast<const char*>(unionPtr);
-                size_t len = strnlen(potentialStr, 1024);
-                
-                if (len > 0) {
-                    int printableCount = 0;
-                    
-                    for (size_t i = 0; i < len; i++) {
-                        unsigned char ch = potentialStr[i];
-                        if (isprint(ch) || ch == 0xC2 || ch == 0xA7 || ch == 0xC3 || ch == 0xBA || ch == 0xE2 || ch == 0x94) {
-                            printableCount++;
-                        }
-                    }
-                    
-                    if (printableCount > len / 2) {
-                        std::string name(potentialStr, len);
-                        name.erase(std::remove(name.begin(), name.end(), '§'), name.end());
-                        
-                        if (!name.empty()) {
-                            return name;
-                        }
-                    }
-                }
+        // Check if it's an inline integer (looks like data, not a pointer)
+        if (ptrValue > 0x1000000000000ULL) {
+            std::cout << "[DEBUG] Detected inline integer" << std::endl;
+            
+            // Extract all characters from first word
+            std::string name;
+            for (int i = 0; i < 8; i++) {
+                char c = static_cast<char>((ptrValue >> (i * 8)) & 0xFF);
+                if (c == 0) break;
+                // Extract all characters including § (0xA7) and other non-printable color codes
+                name += c;
             }
+            
+            std::cout << "[DEBUG] First word name: '" << name << "'" << std::endl;
+            
+            // Check if there's more data in the next word
+            if (IsBadReadPtr(nameTag, 16) == FALSE) {
+                uint64_t* nextWord = reinterpret_cast<uint64_t*>(nameTag) + 1;
+                uint64_t nextValue = *nextWord;
+                std::cout << "[DEBUG] Next word: 0x" << std::hex << nextValue << std::dec << std::endl;
+                
+                // Extract all characters from second word
+                for (int i = 0; i < 8; i++) {
+                    char c = static_cast<char>((nextValue >> (i * 8)) & 0xFF);
+                    if (c == 0) break;
+                    // Extract all characters including § (0xA7) and other non-printable color codes
+                    name += c;
+                }
+                
+                std::cout << "[DEBUG] Combined name: '" << name << "'" << std::endl;
+            }
+            
+            return name;
         }
         
-        if (reinterpret_cast<uintptr_t>(unionPtr) > 0x10000) {
-            if (IsBadReadPtr(unionPtr, sizeof(void*)) == FALSE) {
-                const char** stringPtr = reinterpret_cast<const char**>(unionPtr);
+        // If it's a valid pointer, try to read it as a string structure
+        std::cout << "[DEBUG] Treating as pointer" << std::endl;
+        if (IsBadReadPtr(*nameTag, 32) == FALSE) {
+            uint64_t* stringStruct = reinterpret_cast<uint64_t*>(*nameTag);
+            
+            // Debug the entire structure
+            std::cout << "[DEBUG] String structure dump:" << std::endl;
+            for (int i = 0; i < 4; i++) {
+                std::cout << "[DEBUG] [" << i << "]: 0x" << std::hex << stringStruct[i] << std::dec << std::endl;
+            }
+            
+            // Extract all valid characters from the structure and find the actual length
+            std::string name;
+            
+            // Extract characters from all three 64-bit words
+            for (int word = 0; word < 3; word++) {
+                uint64_t wordData = stringStruct[word];
                 
-                if (stringPtr && *stringPtr && IsBadReadPtr(*stringPtr, 1) == FALSE) {
-                    const char* potentialStr = *stringPtr;
-                    size_t len = strnlen(potentialStr, 1024);
-                    
-                    if (len > 0) {
-                        int printableCount = 0;
-                        
-                        for (size_t i = 0; i < len; i++) {
-                            unsigned char ch = potentialStr[i];
-                            if (isprint(ch) || ch == 0xC2 || ch == 0xC3 || ch == 0xBA || ch == 0xE2 || ch == 0x94) {
-                                printableCount++;
-                            }
-                        }
-                        
-                        if (printableCount > len / 2) {
-                            std::string name(potentialStr, len);
-                            name.erase(std::remove(name.begin(), name.end(), '§'), name.end());
-                            
-                            if (!name.empty()) {
-                                return name;
-                            }
-                        }
-                    }
+                for (int i = 0; i < 8; i++) {
+                    char c = static_cast<char>((wordData >> (i * 8)) & 0xFF);
+                    if (c == 0) break;
+                    // Extract all characters including § (0xA7) and other non-printable color codes
+                    name += c;
                 }
             }
-        }
-        
-        uint64_t intValue = reinterpret_cast<uint64_t>(unionPtr);
-        
-        if (intValue > 0x100000000 && intValue < 0x7FFFFFFFFFFFFFFF) {
-            char intBuffer[9] = { 0 };
-            memcpy(intBuffer, &intValue, 8);
             
-            std::string intName(intBuffer, 8);
-            intName.erase(std::remove(intName.begin(), intName.end(), '\0'), intName.end());
+            std::cout << "[DEBUG] Raw extracted name: '" << name << "'" << std::endl;
             
-            if (!intName.empty() && intName.length() <= 8) {
-                bool allPrintable = true;
-                for (char c : intName) {
-                    if (!isprint(static_cast<unsigned char>(c))) {
-                        allPrintable = false;
-                        break;
-                    }
-                }
-                
-                if (allPrintable) {
-                    return intName;
-                }
+            // Return the name if we found any valid characters
+            if (name.length() > 0) {
+                return name;
             }
+            
+            std::cout << "[DEBUG] No valid layout found" << std::endl;
         }
     }
     
+    std::cout << "[DEBUG] returning empty string" << std::endl;
     return "";
 }
 
