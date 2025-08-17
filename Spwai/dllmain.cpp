@@ -12,15 +12,25 @@ HMODULE g_Module = nullptr;
 
 using GameModeAttackFn = __int64(__fastcall*)(__int64 a1, __int64 a2, char a3);
 using ActorGetNameTagFn = void** (__fastcall*)(__int64 a1);
+using MouseDeviceFeedFn = __int64(__fastcall*)(__int64 a1, char a2, char a3, __int16 a4, __int16 a5, __int16 a6, __int16 a7, char a8);
 
 GameModeAttackFn g_GameModeAttack = nullptr;
 ActorGetNameTagFn g_ActorGetNameTag = nullptr;
 GameModeAttackFn g_OriginalGameModeAttack = nullptr;
 
+MouseDeviceFeedFn g_MouseDeviceFeed = nullptr;
+MouseDeviceFeedFn g_OriginalMouseDeviceFeed = nullptr;
+
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
+bool g_RightMouseButtonHeld = false;
+
 __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
+    if (g_RightMouseButtonHeld) {
+        return g_OriginalGameModeAttack(a1, a2, a3);
+    }
+    
     if (g_ActorGetNameTag) {
         void** nameTag = g_ActorGetNameTag(a2);
         
@@ -38,6 +48,18 @@ __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
     }
     
     return g_OriginalGameModeAttack(a1, a2, a3);
+}
+
+__int64 __fastcall hookedMouseDeviceFeed(__int64 a1, char a2, char a3, __int16 a4, __int16 a5, __int16 a6, __int16 a7, char a8) {
+    if (a2 == 2) {
+        if (a3 == 1) {
+            g_RightMouseButtonHeld = true;
+        } else if (a3 == 0) {
+            g_RightMouseButtonHeld = false;
+        }
+    }
+    
+    return g_OriginalMouseDeviceFeed(a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 void createConsole() {
@@ -78,6 +100,21 @@ void scanSignatures() {
             std::cout << "Actor::getNameTag not found" << std::endl;
         }
     }
+
+    std::string_view mouseDeviceFeedSig = "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 54 41 55 41 56 41 57 48 83 EC 60";
+    
+    auto mouseDeviceFeedSignature = hat::parse_signature(mouseDeviceFeedSig);
+    if (mouseDeviceFeedSignature.has_value()) {
+        auto mouseDeviceFeedResult = hat::find_pattern(mouseDeviceFeedSignature.value(), ".text");
+        
+        if (mouseDeviceFeedResult.has_result()) {
+            g_MouseDeviceFeed = reinterpret_cast<MouseDeviceFeedFn>(mouseDeviceFeedResult.get());
+            g_OriginalMouseDeviceFeed = g_MouseDeviceFeed;
+            std::cout << "Mouse device feed found" << std::endl;
+        } else {
+            std::cout << "Mouse device feed not found" << std::endl;
+        }
+    }
 }
 
 void initializeHooks() {
@@ -95,6 +132,18 @@ void initializeHooks() {
             }
         } else {
             std::cout << "Failed to create GameMode::attack hook" << std::endl;
+        }
+    }
+    
+    if (g_MouseDeviceFeed) {
+        if (MH_CreateHook(g_MouseDeviceFeed, &hookedMouseDeviceFeed, reinterpret_cast<LPVOID*>(&g_OriginalMouseDeviceFeed)) == MH_OK) {
+            if (MH_EnableHook(g_MouseDeviceFeed) == MH_OK) {
+                // Hook successfully enabled
+            } else {
+                std::cout << "Failed to enable mouse device feed hook" << std::endl;
+            }
+        } else {
+            std::cout << "Failed to create mouse device feed hook" << std::endl;
         }
     }
 }
