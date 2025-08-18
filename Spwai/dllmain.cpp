@@ -15,20 +15,20 @@ typedef unsigned __int64 QWORD;
 FILE* g_Console = nullptr;
 HMODULE g_Module = nullptr;
 
-using GameModeAttackFn = __int64(__fastcall*)(__int64 a1, __int64 a2, char a3);
-using ActorGetNameTagFn = void** (__fastcall*)(__int64 a1);
-using MouseDeviceFeedFn = __int64(__fastcall*)(__int64 a1, char a2, char a3, __int16 a4, __int16 a5, __int16 a6, __int16 a7, char a8);
-using PerNametagObjectFn = QWORD*(__fastcall*)(__int64 a1, QWORD* a2, __int64 a3);
+using GameModeAttack = __int64(__fastcall*)(__int64 gamemode, __int64 actor, char a3);
+using ActorGetNameTag = void** (__fastcall*)(__int64 actor);
+using MouseDeviceFeed = __int64(__fastcall*)(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8);
+using NametagObject = QWORD*(__fastcall*)(__int64 a1, QWORD* a2, __int64 a3);
 
-GameModeAttackFn g_GameModeAttack = nullptr;
-ActorGetNameTagFn g_ActorGetNameTag = nullptr;
-GameModeAttackFn g_OriginalGameModeAttack = nullptr;
+GameModeAttack g_GameModeAttack = nullptr;
+ActorGetNameTag g_ActorGetNameTag = nullptr;
+GameModeAttack g_OriginalGameModeAttack = nullptr;
 
-MouseDeviceFeedFn g_MouseDeviceFeed = nullptr;
-MouseDeviceFeedFn g_OriginalMouseDeviceFeed = nullptr;
+MouseDeviceFeed g_MouseDeviceFeed = nullptr;
+MouseDeviceFeed g_OriginalMouseDeviceFeed = nullptr;
 
-PerNametagObjectFn g_PerNametagObject = nullptr;
-PerNametagObjectFn g_OriginalPerNametagObject = nullptr;
+NametagObject g_NametagObject = nullptr;
+NametagObject g_OriginalNametagObject = nullptr;
 
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
@@ -38,9 +38,9 @@ bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
 
-__int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
+__int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
     if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
-        void** nameTag = g_ActorGetNameTag(a2);
+        void** nameTag = g_ActorGetNameTag(actor);
         if (nameTag) {
             std::string actorName = extractName(nameTag);
             if (!actorName.empty()) {
@@ -58,11 +58,11 @@ __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
     }
 
     if (g_RightMouseButtonHeld) {
-        return g_OriginalGameModeAttack(a1, a2, a3);
+        return g_OriginalGameModeAttack(gamemode, actor, a3);
     }
     
     if (g_ActorGetNameTag) {
-        void** nameTag = g_ActorGetNameTag(a2);
+        void** nameTag = g_ActorGetNameTag(actor);
         
         if (nameTag) {
             std::string actorName = extractName(nameTag);
@@ -77,20 +77,20 @@ __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
         }
     }
     
-    return g_OriginalGameModeAttack(a1, a2, a3);
+    return g_OriginalGameModeAttack(gamemode, actor, a3);
 }
 
-__int64 __fastcall hookedMouseDeviceFeed(__int64 a1, char a2, char a3, __int16 a4, __int16 a5, __int16 a6, __int16 a7, char a8) {
-    if (a2 == 2) {
-        if (a3 == 1) {
+__int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8) {
+    if (button == 2) {
+        if (action == 1) {
             g_RightMouseButtonHeld = true;
-        } else if (a3 == 0) {
+        } else if (action == 0) {
             g_RightMouseButtonHeld = false;
         }
     }
 
-    if (a2 == 3) {
-        if (a3 == 1) {
+    if (button == 3) {
+        if (action == 1) {
             g_MiddleMouseButtonHeld = true;
             ULONGLONG now = GetTickCount64();
             if (now - g_LastMmbClickMs <= 500) {
@@ -99,26 +99,26 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 a1, char a2, char a3, __int16 a
             } else {
                 g_LastMmbClickMs = now;
             }
-        } else if (a3 == 0) {
+        } else if (action == 0) {
             g_MiddleMouseButtonHeld = false;
         }
     }
     
-    return g_OriginalMouseDeviceFeed(a1, a2, a3, a4, a5, a6, a7, a8);
+    return g_OriginalMouseDeviceFeed(mouseDevice, button, action, mouseX, mouseY, movementX, movementY, a8);
 }
 
-QWORD* __fastcall hookedPerNametagObject(__int64 a1, QWORD* a2, __int64 a3) {
-    QWORD* result = g_OriginalPerNametagObject(a1, a2, a3);
+QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
+    QWORD* result = g_OriginalNametagObject(a1, array, a3);
     
-    if (a2 && a2[2] && a2[3]) {
-        __int64 startAddr = a2[2];
-        __int64 endAddr = a2[3];
+    if (array && array[2] && array[3]) {
+        __int64 startAddr = array[2];
+        __int64 endAddr = array[3];
         
         if (startAddr && endAddr && startAddr < endAddr) {
-            __int64 numNametags = (endAddr - startAddr) / sizeof(NametagEntry);
+            __int64 numNametags = (endAddr - startAddr) / sizeof(::NametagEntry);
             
             for (__int64 i = 0; i < numNametags; i++) {
-                NametagEntry* nametag = reinterpret_cast<NametagEntry*>(startAddr + (i * sizeof(NametagEntry)));
+                ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
                 
                 if (!nametag) {
                     continue;
@@ -214,7 +214,7 @@ void scanSignatures() {
         auto attackResult = hat::find_pattern(attackSignature.value(), ".text");
         
         if (attackResult.has_result()) {
-            g_GameModeAttack = reinterpret_cast<GameModeAttackFn>(attackResult.get());
+            g_GameModeAttack = reinterpret_cast<GameModeAttack>(attackResult.get());
             g_OriginalGameModeAttack = g_GameModeAttack;
             std::cout << "GameMode::attack found" << std::endl;
         } else {
@@ -229,7 +229,7 @@ void scanSignatures() {
         auto getNameTagResult = hat::find_pattern(getNameTagSignature.value(), ".text");
         
         if (getNameTagResult.has_result()) {
-            g_ActorGetNameTag = reinterpret_cast<ActorGetNameTagFn>(getNameTagResult.get());
+            g_ActorGetNameTag = reinterpret_cast<ActorGetNameTag>(getNameTagResult.get());
             std::cout << "Actor::getNameTag found" << std::endl;
         } else {
             std::cout << "Actor::getNameTag not found" << std::endl;
@@ -243,26 +243,26 @@ void scanSignatures() {
         auto mouseDeviceFeedResult = hat::find_pattern(mouseDeviceFeedSignature.value(), ".text");
         
         if (mouseDeviceFeedResult.has_result()) {
-            g_MouseDeviceFeed = reinterpret_cast<MouseDeviceFeedFn>(mouseDeviceFeedResult.get());
+            g_MouseDeviceFeed = reinterpret_cast<MouseDeviceFeed>(mouseDeviceFeedResult.get());
             g_OriginalMouseDeviceFeed = g_MouseDeviceFeed;
-            std::cout << "Mouse device feed found" << std::endl;
+            std::cout << "MouseDevice::feed found" << std::endl;
         } else {
-            std::cout << "Mouse device feed not found" << std::endl;
+            std::cout << "MouseDevice::feed not found" << std::endl;
         }
     }
     
-    std::string_view perNametagObjectSig = "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 10 FE FF FF 48 81 EC F0 02 00 00 0F";
+    std::string_view nametagObjectSig = "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 10 FE FF FF 48 81 EC F0 02 00 00 0F";
     
-    auto perNametagObjectSignature = hat::parse_signature(perNametagObjectSig);
-    if (perNametagObjectSignature.has_value()) {
-        auto perNametagObjectResult = hat::find_pattern(perNametagObjectSignature.value(), ".text");
+    auto nametagObjectSignature = hat::parse_signature(nametagObjectSig);
+    if (nametagObjectSignature.has_value()) {
+        auto nametagObjectResult = hat::find_pattern(nametagObjectSignature.value(), ".text");
         
-        if (perNametagObjectResult.has_result()) {
-            g_PerNametagObject = reinterpret_cast<PerNametagObjectFn>(perNametagObjectResult.get());
-            g_OriginalPerNametagObject = g_PerNametagObject;
-            std::cout << "PerNametagObject found" << std::endl;
+        if (nametagObjectResult.has_result()) {
+            g_NametagObject = reinterpret_cast<NametagObject>(nametagObjectResult.get());
+            g_OriginalNametagObject = g_NametagObject;
+            std::cout << "NametagObject found" << std::endl;
         } else {
-            std::cout << "PerNametagObject not found" << std::endl;
+            std::cout << "NametagObject not found" << std::endl;
         }
     }
 }
@@ -290,22 +290,22 @@ void initializeHooks() {
             if (MH_EnableHook(g_MouseDeviceFeed) == MH_OK) {
                 
             } else {
-                std::cout << "Failed to enable mouse device feed hook" << std::endl;
+                std::cout << "Failed to enable MouseDevice::feed hook" << std::endl;
             }
         } else {
-            std::cout << "Failed to create mouse device feed hook" << std::endl;
+            std::cout << "Failed to create MouseDevice::feed hook" << std::endl;
         }
     }
     
-    if (g_PerNametagObject) {
-        if (MH_CreateHook(g_PerNametagObject, &hookedPerNametagObject, reinterpret_cast<LPVOID*>(&g_OriginalPerNametagObject)) == MH_OK) {
-            if (MH_EnableHook(g_PerNametagObject) == MH_OK) {
+    if (g_NametagObject) {
+        if (MH_CreateHook(g_NametagObject, &hookedNametagObject, reinterpret_cast<LPVOID*>(&g_OriginalNametagObject)) == MH_OK) {
+            if (MH_EnableHook(g_NametagObject) == MH_OK) {
                 
             } else {
-                std::cout << "Failed to enable PerNametagObject hook" << std::endl;
+                std::cout << "Failed to enable NametagObject hook" << std::endl;
             }
         } else {
-            std::cout << "Failed to create PerNametagObject hook" << std::endl;
+            std::cout << "Failed to create NametagObject hook" << std::endl;
         }
     }
 }
