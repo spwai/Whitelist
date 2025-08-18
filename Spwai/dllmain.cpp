@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <unordered_set>
 #include <iomanip>
 #include <algorithm>
 
@@ -30,8 +31,8 @@ MouseDeviceFeed g_OriginalMouseDeviceFeed = nullptr;
 NametagObject g_NametagObject = nullptr;
 NametagObject g_OriginalNametagObject = nullptr;
 
-std::vector<std::string> g_msrPlayers;
-std::vector<std::string> g_qtPlayers;
+std::unordered_set<std::string> g_msrPlayers;
+std::unordered_set<std::string> g_qtPlayers;
 
 bool g_RightMouseButtonHeld = false;
 bool g_NametagColorsEnabled = true;
@@ -47,9 +48,9 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
                 std::string sanitizedName = sanitizeName(actorName);
                 if (!sanitizedName.empty()) {
                     if (isInList(sanitizedName, g_msrPlayers)) {
-                        g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+                        g_msrPlayers.erase(sanitizedName);
                     } else {
-                        g_msrPlayers.push_back(sanitizedName);
+                        g_msrPlayers.insert(sanitizedName);
                     }
                 }
             }

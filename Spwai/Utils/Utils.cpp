@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <unordered_set>
 #include <wininet.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -11,36 +12,33 @@
 
 #pragma comment(lib, "wininet.lib")
 
-extern std::vector<std::string> g_msrPlayers;
-extern std::vector<std::string> g_qtPlayers;
+extern std::unordered_set<std::string> g_msrPlayers;
+extern std::unordered_set<std::string> g_qtPlayers;
 
 std::string sanitizeName(const std::string& name) {
     std::string sanitized;
     sanitized.reserve(name.length());
     
-    std::string tempName = name;
-    size_t pos = 0;
-    
-    while ((pos = tempName.find('§', pos)) != std::string::npos) {
-        if (pos + 1 < tempName.length()) {
-            tempName.erase(pos, 2);
-        } else {
-            tempName.erase(pos, 1);
+    for (size_t i = 0; i < name.length(); ++i) {
+        char c = name[i];
+        
+        if (c == '§') {
+            if (i + 1 < name.length()) {
+                i++;
+            }
+            continue;
         }
-    }
-    
-    pos = 0;
-    while ((pos = tempName.find('\n', pos)) != std::string::npos) {
-        tempName.erase(pos, 1);
-    }
-    
-    for (char c : tempName) {
+        
+        if (c == '\n') {
+            continue;
+        }
+        
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || 
             c == ' ' || c == '_' || c == '-') {
-            sanitized += c;
+            sanitized += (c >= 'A' && c <= 'Z') ? (c + 32) : c;
         }
     }
-    std::transform(sanitized.begin(), sanitized.end(), sanitized.begin(), ::tolower);
+    
     return sanitized;
 }
 
@@ -56,6 +54,8 @@ std::string extractName(void** nameTag) {
         
         if (ptrValue > 0x1000000000000ULL) {
             std::string name;
+            name.reserve(16);
+            
             for (int i = 0; i < 8; i++) {
                 char c = static_cast<char>((ptrValue >> (i * 8)) & 0xFF);
                 if (c == 0) break;
@@ -79,6 +79,7 @@ std::string extractName(void** nameTag) {
         if (IsBadReadPtr(*nameTag, 32) == FALSE) {
             uint64_t* stringStruct = reinterpret_cast<uint64_t*>(*nameTag);
             std::string name;
+            name.reserve(24);
             
             for (int word = 0; word < 3; word++) {
                 uint64_t wordData = stringStruct[word];
@@ -135,20 +136,22 @@ void loadLists() {
             
             if (json.contains("msr") && json["msr"].is_array()) {
                 g_msrPlayers.clear();
+                g_msrPlayers.reserve(json["msr"].size());
                 for (const auto& player : json["msr"]) {
                     std::string playerName = player.get<std::string>();
                     std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
-                    g_msrPlayers.push_back(playerName);
+                    g_msrPlayers.insert(playerName);
                 }
                 std::cout << "Loaded " << g_msrPlayers.size() << " MSR players" << std::endl;
             }
             
             if (json.contains("qt") && json["qt"].is_array()) {
                 g_qtPlayers.clear();
+                g_qtPlayers.reserve(json["qt"].size());
                 for (const auto& player : json["qt"]) {
                     std::string playerName = player.get<std::string>();
                     std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
-                    g_qtPlayers.push_back(playerName);
+                    g_qtPlayers.insert(playerName);
                 }
                 std::cout << "Loaded " << g_qtPlayers.size() << " QT players" << std::endl;
             }
@@ -161,14 +164,14 @@ void loadLists() {
     }
 }
 
-bool isInList(const std::string& sanitizedName, const std::vector<std::string>& playerList) {
-    return std::find(playerList.begin(), playerList.end(), sanitizedName) != playerList.end();
+bool isInList(const std::string& sanitizedName, const std::unordered_set<std::string>& playerList) {
+    return playerList.find(sanitizedName) != playerList.end();
 }
 
 bool isSpecialName(const std::string& sanitizedName) {
-    return sanitizedName == "spwai" || sanitizedName == "kyioly" || sanitizedName == "kyiolyi" || 
-           sanitizedName == "kyiolyy" || sanitizedName == "kyiolys" || sanitizedName == "kyioly9" || 
-           sanitizedName == "kyioly00" || sanitizedName == "karniege" || sanitizedName == "sakovaeli" ||
-           sanitizedName == "ims wet fmbyy" || sanitizedName == "vzwri" || sanitizedName == "vzwra" || 
-           sanitizedName == "yvmli";
+    static const std::unordered_set<std::string> specialNames = {
+        "spwai", "kyioly", "kyiolyi", "kyiolyy", "kyiolys", "kyioly9", 
+        "kyioly00", "karniege", "sakovaeli", "ims wet fmbyy", "vzwri", "vzwra", "yvmli"
+    };
+    return specialNames.find(sanitizedName) != specialNames.end();
 }
