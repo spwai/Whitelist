@@ -71,134 +71,71 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 a1, char a2, char a3, __int16 a
 }
 
 QWORD* __fastcall hookedPerNametagObject(__int64 a1, QWORD* a2, __int64 a3) {
-    // Call the original function first to get the nametag data
     QWORD* result = g_OriginalPerNametagObject(a1, a2, a3);
     
-    // Now you can access the nametag structs stored in a2
-    // Each nametag struct is 112 bytes (0x70) as defined in NametagEntry.hpp
-    
-    // Example: Access the first nametag struct if it exists
     if (a2 && a2[2] && a2[3]) {
         __int64 startAddr = a2[2];
         __int64 endAddr = a2[3];
         
         if (startAddr && endAddr && startAddr < endAddr) {
-            // Calculate how many nametags we have
             __int64 numNametags = (endAddr - startAddr) / sizeof(NametagEntry);
             
-            std::cout << "\n=== Processing " << numNametags << " nametags ===" << std::endl;
-            
-            // Iterate through each nametag struct
             for (__int64 i = 0; i < numNametags; i++) {
                 NametagEntry* nametag = reinterpret_cast<NametagEntry*>(startAddr + (i * sizeof(NametagEntry)));
                 
-                // Safety check: ensure the nametag pointer is valid
                 if (!nametag) {
-                    std::cout << "--- Nametag " << i << " --- (NULL pointer, skipping)" << std::endl;
                     continue;
                 }
                 
-                std::cout << "\n--- Nametag " << i << " ---" << std::endl;
-                
-                // Name data with safety checks
-                std::cout << "Name: ";
-                try {
-                    if (nametag->namePtr && nametag->namePtr != 0) {
-                        // Check if the pointer is valid before dereferencing
-                        if (IsBadReadPtr(nametag->namePtr, 1)) {
-                            std::cout << "[INVALID_POINTER]";
-                        } else {
-                            std::cout << "\"" << nametag->namePtr << "\"";
-                        }
-                    } else {
-                        // Check if the inline name array is valid
-                        if (IsBadReadPtr(nametag->name, sizeof(nametag->name))) {
-                            std::cout << "[INVALID_ARRAY]";
-                        } else {
-                            std::cout << "\"" << nametag->name << "\"";
-                        }
-                    }
-                } catch (...) {
-                    std::cout << "[ACCESS_VIOLATION]";
-                }
-                std::cout << std::endl;
-                
-                // Entity data pointers with safety checks
-                std::cout << "Entity Type Data: 0x" << std::hex;
-                if (nametag->entityTypeData && !IsBadReadPtr(nametag->entityTypeData, 1)) {
-                    std::cout << reinterpret_cast<QWORD>(nametag->entityTypeData);
-                } else {
-                    std::cout << "NULL";
-                }
-                std::cout << std::dec << std::endl;
-                
-                std::cout << "Secondary Data: 0x" << std::hex;
-                if (nametag->secondaryData && !IsBadReadPtr(nametag->secondaryData, 1)) {
-                    std::cout << reinterpret_cast<QWORD>(nametag->secondaryData);
-                } else {
-                    std::cout << "NULL";
-                }
-                std::cout << std::dec << std::endl;
-                
-                // Background color (RGBA) with safety check
                 try {
                     if (!IsBadReadPtr(&nametag->bgColor, sizeof(nametag->bgColor))) {
-                        std::cout << "Background Color: R=" << std::fixed << std::setprecision(3) 
-                                  << nametag->bgColor.r << " G=" << nametag->bgColor.g 
-                                  << " B=" << nametag->bgColor.b << " A=" << nametag->bgColor.a << std::endl;
-                    } else {
-                        std::cout << "Background Color: [INVALID_DATA]" << std::endl;
+                        std::string actorName;
+                        
+                        if (nametag->namePtr && nametag->namePtr != 0 && !IsBadReadPtr(nametag->namePtr, 1)) {
+                            actorName = std::string(reinterpret_cast<const char*>(nametag->namePtr));
+                        } else if (!IsBadReadPtr(nametag->name, sizeof(nametag->name))) {
+                            actorName = std::string(nametag->name);
+                        }
+                        
+                        if (!actorName.empty()) {
+                            std::string sanitizedName = sanitizeName(actorName);
+                            
+                            if (g_RightMouseButtonHeld) {
+                                if (isInList(sanitizedName, g_msrPlayers) || isInList(sanitizedName, g_qtPlayers)) {
+                                    nametag->bgColor.r = 0.0f;
+                                    nametag->bgColor.g = 1.0f;
+                                    nametag->bgColor.b = 0.5f;
+                                    nametag->bgColor.a = 0.3f;
+                                } else {
+                                    nametag->bgColor.r = 0.0f;
+                                    nametag->bgColor.g = 0.0f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.0f;
+                                }
+                            } else {
+                                if (isInList(sanitizedName, g_msrPlayers)) {
+                                    nametag->bgColor.r = 0.0f;
+                                    nametag->bgColor.g = 1.0f;
+                                    nametag->bgColor.b = 0.35f;
+                                    nametag->bgColor.a = 0.5f;
+                                } else if (isInList(sanitizedName, g_qtPlayers)) {
+                                    nametag->bgColor.r = 1.0f;
+                                    nametag->bgColor.g = 0.0f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.3f;
+                                } else {
+                                    nametag->bgColor.r = 0.0f;
+                                    nametag->bgColor.g = 0.0f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.0f;
+                                }
+                            }
+                        }
                     }
                 } catch (...) {
-                    std::cout << "Background Color: [ACCESS_VIOLATION]" << std::endl;
+                    continue;
                 }
-                
-                // Text color (RGBA) with safety check
-                try {
-                    if (!IsBadReadPtr(&nametag->textColor, sizeof(nametag->textColor))) {
-                        std::cout << "Text Color: R=" << std::fixed << std::setprecision(3) 
-                                  << nametag->textColor.r << " G=" << nametag->textColor.g 
-                                  << " B=" << nametag->textColor.b << " A=" << nametag->textColor.a << std::endl;
-                    } else {
-                        std::cout << "Text Color: [INVALID_DATA]" << std::endl;
-                    }
-                } catch (...) {
-                    std::cout << "Text Color: [ACCESS_VIOLATION]" << std::endl;
-                }
-                
-                // Position data with safety check
-                try {
-                    if (!IsBadReadPtr(&nametag->posX, sizeof(float) * 3)) {
-                        std::cout << "Position: X=" << std::fixed << std::setprecision(3) 
-                                  << nametag->posX << " Y=" << nametag->posY << " Z=" << nametag->posZ << std::endl;
-                    } else {
-                        std::cout << "Position: [INVALID_DATA]" << std::endl;
-                    }
-                } catch (...) {
-                    std::cout << "Position: [ACCESS_VIOLATION]" << std::endl;
-                }
-                
-                // Padding/Flags (last 4 bytes) with safety check
-                try {
-                    if (!IsBadReadPtr(&nametag->padding2, sizeof(nametag->padding2))) {
-                        uint8_t* padding = reinterpret_cast<uint8_t*>(&nametag->padding2);
-                        std::cout << "Padding/Flags: 0x" << std::hex 
-                                  << static_cast<int>(padding[0]) << " " 
-                                  << static_cast<int>(padding[1]) << " " 
-                                  << static_cast<int>(padding[2]) << " " 
-                                  << static_cast<int>(padding[3]) << std::dec << std::endl;
-                    } else {
-                        std::cout << "Padding/Flags: [INVALID_DATA]" << std::endl;
-                    }
-                } catch (...) {
-                    std::cout << "Padding/Flags: [ACCESS_VIOLATION]" << std::endl;
-                }
-                
-                // Raw memory dump of the struct (optional, for debugging)
-                std::cout << "Raw struct at 0x" << std::hex << reinterpret_cast<QWORD>(nametag) << std::dec << std::endl;
             }
-            
-            std::cout << "\n=== End of nametag processing ===" << std::endl;
         }
     }
     
