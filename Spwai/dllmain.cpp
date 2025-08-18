@@ -101,16 +101,11 @@ QWORD* __fastcall hookedPerNametagObject(__int64 a1, QWORD* a2, __int64 a3) {
                             std::string sanitizedName = sanitizeName(actorName);
                             
                             if (g_RightMouseButtonHeld) {
-                                if (isInList(sanitizedName, g_msrPlayers) || isInList(sanitizedName, g_qtPlayers)) {
-                                    nametag->bgColor.r = 0.0f;
+                                if (isInList(sanitizedName, g_msrPlayers)) {
+                                    nametag->bgColor.r = 0.5f;
                                     nametag->bgColor.g = 1.0f;
-                                    nametag->bgColor.b = 0.5f;
-                                    nametag->bgColor.a = 0.3f;
-                                } else {
-                                    nametag->bgColor.r = 0.0f;
-                                    nametag->bgColor.g = 0.0f;
-                                    nametag->bgColor.b = 0.0f;
-                                    nametag->bgColor.a = 0.0f;
+                                    nametag->bgColor.b = 0.85f;
+                                    nametag->bgColor.a = 0.25f;
                                 }
                             } else {
                                 if (isInList(sanitizedName, g_msrPlayers)) {
@@ -256,7 +251,7 @@ void initializeHooks() {
 }
 
 void initialize() {
-    createConsole();
+    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();
