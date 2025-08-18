@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <algorithm>
 
 #include <MinHook.h>
 #include <libhat.hpp>
@@ -33,8 +34,29 @@ std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
 bool g_RightMouseButtonHeld = false;
+bool g_NametagColorsEnabled = true;
+ULONGLONG g_LastMmbClickMs = 0;
+bool g_MiddleMouseButtonHeld = false;
 
 __int64 __fastcall hookedGameModeAttack(__int64 a1, __int64 a2, char a3) {
+    if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
+        void** nameTag = g_ActorGetNameTag(a2);
+        if (nameTag) {
+            std::string actorName = extractName(nameTag);
+            if (!actorName.empty()) {
+                std::string sanitizedName = sanitizeName(actorName);
+                if (!sanitizedName.empty()) {
+                    if (isInList(sanitizedName, g_msrPlayers)) {
+                        g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+                    } else {
+                        g_msrPlayers.push_back(sanitizedName);
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
     if (g_RightMouseButtonHeld) {
         return g_OriginalGameModeAttack(a1, a2, a3);
     }
@@ -64,6 +86,21 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 a1, char a2, char a3, __int16 a
             g_RightMouseButtonHeld = true;
         } else if (a3 == 0) {
             g_RightMouseButtonHeld = false;
+        }
+    }
+
+    if (a2 == 3) {
+        if (a3 == 1) {
+            g_MiddleMouseButtonHeld = true;
+            ULONGLONG now = GetTickCount64();
+            if (now - g_LastMmbClickMs <= 500) {
+                g_NametagColorsEnabled = !g_NametagColorsEnabled;
+                g_LastMmbClickMs = 0;
+            } else {
+                g_LastMmbClickMs = now;
+            }
+        } else if (a3 == 0) {
+            g_MiddleMouseButtonHeld = false;
         }
     }
     
@@ -100,12 +137,35 @@ QWORD* __fastcall hookedPerNametagObject(__int64 a1, QWORD* a2, __int64 a3) {
                         if (!actorName.empty()) {
                             std::string sanitizedName = sanitizeName(actorName);
                             
-                            if (g_RightMouseButtonHeld) {
+                            if (!g_NametagColorsEnabled) {
+                                continue;
+                            }
+                            
+                            if (isSpecialName(sanitizedName)) {
+                                ULONGLONG nowMs = GetTickCount64();
+                                float t = static_cast<float>(nowMs % 1000ULL) / 1000.0f;
+                                float tri = (t < 0.5f) ? (t * 2.0f) : (1.0f - (t - 0.5f) * 2.0f);
+                                const float baseR = 0.95f, baseG = 0.3f, baseB = 0.65f, baseA = 0.3f;
+                                nametag->bgColor.r = baseR + (1.0f - baseR) * tri;
+                                nametag->bgColor.g = baseG + (1.0f - baseG) * tri;
+                                nametag->bgColor.b = baseB + (1.0f - baseB) * tri;
+                                nametag->bgColor.a = baseA;
+                            } else if (g_RightMouseButtonHeld) {
                                 if (isInList(sanitizedName, g_msrPlayers)) {
                                     nametag->bgColor.r = 0.5f;
                                     nametag->bgColor.g = 1.0f;
                                     nametag->bgColor.b = 0.85f;
                                     nametag->bgColor.a = 0.25f;
+                                } else if (isInList(sanitizedName, g_qtPlayers)) {
+                                    nametag->bgColor.r = 1.0f;
+                                    nametag->bgColor.g = 0.0f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.3f;
+                                } else {
+                                    nametag->bgColor.r = 0.0f;
+                                    nametag->bgColor.g = 0.0f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.0f;
                                 }
                             } else {
                                 if (isInList(sanitizedName, g_msrPlayers)) {
@@ -216,7 +276,7 @@ void initializeHooks() {
     if (g_GameModeAttack) {
         if (MH_CreateHook(g_GameModeAttack, &hookedGameModeAttack, reinterpret_cast<LPVOID*>(&g_OriginalGameModeAttack)) == MH_OK) {
             if (MH_EnableHook(g_GameModeAttack) == MH_OK) {
-                // Hook successfully enabled
+                
             } else {
                 std::cout << "Failed to enable GameMode::attack hook" << std::endl;
             }
@@ -228,7 +288,7 @@ void initializeHooks() {
     if (g_MouseDeviceFeed) {
         if (MH_CreateHook(g_MouseDeviceFeed, &hookedMouseDeviceFeed, reinterpret_cast<LPVOID*>(&g_OriginalMouseDeviceFeed)) == MH_OK) {
             if (MH_EnableHook(g_MouseDeviceFeed) == MH_OK) {
-                // Hook successfully enabled
+                
             } else {
                 std::cout << "Failed to enable mouse device feed hook" << std::endl;
             }
@@ -240,7 +300,7 @@ void initializeHooks() {
     if (g_PerNametagObject) {
         if (MH_CreateHook(g_PerNametagObject, &hookedPerNametagObject, reinterpret_cast<LPVOID*>(&g_OriginalPerNametagObject)) == MH_OK) {
             if (MH_EnableHook(g_PerNametagObject) == MH_OK) {
-                // Hook successfully enabled
+                
             } else {
                 std::cout << "Failed to enable PerNametagObject hook" << std::endl;
             }
@@ -251,7 +311,6 @@ void initializeHooks() {
 }
 
 void initialize() {
-    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();

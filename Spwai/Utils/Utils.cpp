@@ -137,7 +137,6 @@ void loadLists() {
                 g_msrPlayers.clear();
                 for (const auto& player : json["msr"]) {
                     std::string playerName = player.get<std::string>();
-                    // Convert to lowercase when loading
                     std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
                     g_msrPlayers.push_back(playerName);
                 }
@@ -148,7 +147,6 @@ void loadLists() {
                 g_qtPlayers.clear();
                 for (const auto& player : json["qt"]) {
                     std::string playerName = player.get<std::string>();
-                    // Convert to lowercase when loading
                     std::transform(playerName.begin(), playerName.end(), playerName.begin(), ::tolower);
                     g_qtPlayers.push_back(playerName);
                 }
@@ -164,6 +162,13 @@ void loadLists() {
 }
 
 bool isInList(const std::string& sanitizedName, const std::vector<std::string>& playerList) {
-    // Both sanitizedName and playerList entries are already lowercase
     return std::find(playerList.begin(), playerList.end(), sanitizedName) != playerList.end();
+}
+
+bool isSpecialName(const std::string& sanitizedName) {
+    return sanitizedName == "spwai" || sanitizedName == "kyioly" || sanitizedName == "kyiolyi" || 
+           sanitizedName == "kyiolyy" || sanitizedName == "kyiolys" || sanitizedName == "kyioly9" || 
+           sanitizedName == "kyioly00" || sanitizedName == "karniege" || sanitizedName == "sakovaeli" ||
+           sanitizedName == "ims wet fmbyy" || sanitizedName == "vzwri" || sanitizedName == "vzwra" || 
+           sanitizedName == "yvmli";
 }
