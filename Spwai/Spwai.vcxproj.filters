@@ -29,5 +29,8 @@
     <ClInclude Include="Utils\Utils.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SDK\NametagEntry.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
