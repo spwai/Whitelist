@@ -34,6 +34,7 @@ std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
 bool g_RightMouseButtonHeld = false;
+bool g_LeftMouseButtonHeld = false;
 bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
@@ -46,10 +47,21 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
             if (!actorName.empty()) {
                 std::string sanitizedName = sanitizeName(actorName);
                 if (!sanitizedName.empty()) {
-                    if (isInList(sanitizedName, g_msrPlayers)) {
-                        g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
-                    } else {
-                        g_msrPlayers.push_back(sanitizedName);
+                    // MMB + RMB + Left click: Add to enemy list (QT players)
+                    if (g_RightMouseButtonHeld && g_LeftMouseButtonHeld) {
+                        if (isInList(sanitizedName, g_qtPlayers)) {
+                            g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
+                        } else {
+                            g_qtPlayers.push_back(sanitizedName);
+                        }
+                    }
+                    // MMB + Left click: Add to friend list (MSR players)
+                    else if (!g_RightMouseButtonHeld) {
+                        if (isInList(sanitizedName, g_msrPlayers)) {
+                            g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+                        } else {
+                            g_msrPlayers.push_back(sanitizedName);
+                        }
                     }
                 }
             }
@@ -81,7 +93,15 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
 }
 
 __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8) {
-    if (button == 2) {
+    if (button == 1) { // Left mouse button
+        if (action == 1) {
+            g_LeftMouseButtonHeld = true;
+        } else if (action == 0) {
+            g_LeftMouseButtonHeld = false;
+        }
+    }
+    
+    if (button == 2) { // Right mouse button
         if (action == 1) {
             g_RightMouseButtonHeld = true;
         } else if (action == 0) {
@@ -89,7 +109,7 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
         }
     }
 
-    if (button == 3) {
+    if (button == 3) { // Middle mouse button
         if (action == 1) {
             g_MiddleMouseButtonHeld = true;
             ULONGLONG now = GetTickCount64();
