@@ -76,20 +76,25 @@ std::string extractName(void** nameTag) {
             return name;
         }
         
-        if (IsBadReadPtr(*nameTag, 32) == FALSE) {
+        if (IsBadReadPtr(*nameTag, 256) == FALSE) {
             uint64_t* stringStruct = reinterpret_cast<uint64_t*>(*nameTag);
             std::string name;
             
-            for (int word = 0; word < 3; word++) {
+            for (int word = 0; word < 32; word++) {
                 uint64_t wordData = stringStruct[word];
                 
                 for (int i = 0; i < 8; i++) {
                     char c = static_cast<char>((wordData >> (i * 8)) & 0xFF);
-                    if (c == 0) break;
+                    if (c == 0) {
+                        if (name.length() > 0) {
+                            return name;
+                        }
+                        break;
+                    }
                     name += c;
                 }
             }
-            
+
             if (name.length() > 0) {
                 return name;
             }
