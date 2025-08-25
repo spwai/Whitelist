@@ -2,6 +2,8 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <sstream>
+#include <iomanip>
 #include <algorithm>
 #include <MinHook.h>
 #include <libhat.hpp>
@@ -51,6 +53,9 @@ bool g_MiddleMouseButtonHeld = false;
 
  
 int g_UITextMode = 0;
+std::string g_LastHitRawName;
+std::string g_LastHitSanitizedName;
+__int64 g_LastHitEntityPtr = 0;
 int g_MsrOnScreen = 0;
 int g_QtOnScreen = 0;
 float g_MousePosX = 0.0f;
@@ -59,6 +64,15 @@ float g_MousePosY = 0.0f;
 
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
+    g_LastHitEntityPtr = actor;
+    if (g_ActorGetNameTag) {
+        void** nameTag = g_ActorGetNameTag(actor);
+        if (nameTag) {
+            std::string actorName = extractName(nameTag);
+            g_LastHitRawName = actorName;
+            g_LastHitSanitizedName = actorName.empty() ? std::string("") : sanitizeName(actorName);
+        }
+    }
     if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
         void** nameTag = g_ActorGetNameTag(actor);
         if (nameTag) {
@@ -147,10 +161,10 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
         int delta = 0;
         if (action > 0) delta = 1; else if (action < 0) delta = -1;
         if (g_RightMouseButtonHeld) {
-            if (delta > 0) {
-                g_UITextMode = (g_UITextMode + 2) % 3;
-            } else if (delta < 0) {
-                g_UITextMode = (g_UITextMode + 1) % 3;
+            if (delta < 0) { // scroll down on this system: next (+1)
+                g_UITextMode = (g_UITextMode + 1) % 4;
+            } else if (delta > 0) { // scroll up on this system: previous (-1)
+                g_UITextMode = (g_UITextMode + 3) % 4;
             }
         }
     }
@@ -270,7 +284,7 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
                 "MMB + LMB -> Add MSR\n"
                 "MMB + RMB + LMB -> Add QT\n"
                 "MMB X2 -> Toggle Rendering\n"
-                "RMB + Scroll Wheel -> Cycle Menu";
+                "RMB + Scroll Wheel -> Cycle Menu (Info/Stats/LastHit/Off)";
             context->drawDebugText(
                 textRect,
                 infoText,
@@ -296,6 +310,24 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
                 caretMeasure
             );
         } else if (g_UITextMode == 2) {
+            std::ostringstream oss;
+            oss << "rawName: " << (g_LastHitRawName.empty() ? std::string("<none>") : g_LastHitRawName) << "§r\n";
+            oss << "name: " << (g_LastHitSanitizedName.empty() ? std::string("<none>") : g_LastHitSanitizedName) << "\n";
+            {
+                uintptr_t addr = static_cast<uintptr_t>(g_LastHitEntityPtr);
+                oss << "entityPtr: 0x" << std::uppercase << std::hex
+                    << std::setw(sizeof(void*) * 2) << std::setfill('0') << addr;
+            }
+            context->drawDebugText(
+                textRect,
+                oss.str(),
+                Color(1.0f, 1.0f, 1.0f, 1.0f),
+                0.6f,
+                TextAlignment::LEFT,
+                textMeasure,
+                caretMeasure
+            );
+        } else if (g_UITextMode == 3) {
             // Off: render nothing
         }   
     }
