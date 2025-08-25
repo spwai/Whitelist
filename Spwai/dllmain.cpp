@@ -42,7 +42,7 @@ MinecraftUIRenderContextFunc g_RenderCtxOriginalTarget = nullptr;
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
-int g_PlayersInMap = 0;
+int g_PlayersOnScreen = 0;
 int g_FriendAttacksBlocked = 0;
 
 bool g_RightMouseButtonHeld = false;
@@ -50,6 +50,48 @@ bool g_LeftMouseButtonHeld = false;
 bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
+
+RectangleArea g_UIButtonRect(0.0f, 0.0f, 0.0f, 0.0f);
+RectangleArea g_TextRectCached(0.0f, 0.0f, 0.0f, 0.0f);
+int g_UITextMode = 0; // 0: Info, 1: Stats
+int g_MsrOnScreen = 0;
+int g_QtOnScreen = 0;
+float g_MousePosX = 0.0f;
+float g_MousePosY = 0.0f;
+float g_UIMousePosX = 0.0f;
+float g_UIMousePosY = 0.0f;
+RectangleArea g_LastFullRect(0.0f, 0.0f, 0.0f, 0.0f);
+
+static inline bool pointInRect(float x, float y, const RectangleArea& r) {
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+static inline void clampToRect(float& x, float& y, const RectangleArea& r) {
+    if (x < r.left) x = r.left;
+    if (x > r.right) x = r.right;
+    if (y < r.top) y = r.top;
+    if (y > r.bottom) y = r.bottom;
+}
+
+static inline void mapMouseToUI(float rawX, float rawY, const RectangleArea& fullRect, float& outX, float& outY) {
+    float fullWidth = fullRect.right - fullRect.left;
+    float fullHeight = fullRect.bottom - fullRect.top;
+    outX = rawX;
+    outY = rawY;
+    bool outside = (rawX < fullRect.left) || (rawX > fullRect.right) || (rawY < fullRect.top) || (rawY > fullRect.bottom);
+    if (outside) {
+        // If raw looks like int16 or another space, try remap; then clamp
+        const float int16Max = 32767.0f;
+        const float int16Min = -32768.0f;
+        float nx = (rawX - int16Min) / (int16Max - int16Min);
+        float ny = (rawY - int16Min) / (int16Max - int16Min);
+        if (nx >= -0.5f && nx <= 1.5f && ny >= -0.5f && ny <= 1.5f) {
+            outX = fullRect.left + nx * fullWidth;
+            outY = fullRect.top + ny * fullHeight;
+        }
+    }
+    clampToRect(outX, outY, fullRect);
+}
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
     if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
@@ -102,11 +144,21 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
 }
 
 __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8) {
+    g_MousePosX = static_cast<float>(mouseX);
+    g_MousePosY = static_cast<float>(mouseY);
+
     if (button == 1) {
         if (action == 1) {
             g_LeftMouseButtonHeld = true;
         } else if (action == 0) {
             g_LeftMouseButtonHeld = false;
+            // Treat left-button release as click; toggle if released over text or square
+            float mappedX = g_MousePosX;
+            float mappedY = g_MousePosY;
+            mapMouseToUI(g_MousePosX, g_MousePosY, g_LastFullRect, mappedX, mappedY);
+            if (pointInRect(mappedX, mappedY, g_UIButtonRect) || pointInRect(mappedX, mappedY, g_TextRectCached)) {
+                g_UITextMode = (g_UITextMode + 1) % 2;
+            }
         }
     }
     
@@ -139,7 +191,9 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
 QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     QWORD* result = g_OriginalNametagObject(a1, array, a3);
     
-    g_PlayersInMap = 0;
+    g_PlayersOnScreen = 0;
+    g_MsrOnScreen = 0;
+    g_QtOnScreen = 0;
     
     if (array && array[2] && array[3]) {
         __int64 startAddr = array[2];
@@ -147,7 +201,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
         
         if (startAddr && endAddr && startAddr < endAddr) {
             __int64 numNametags = (endAddr - startAddr) / sizeof(::NametagEntry);
-            g_PlayersInMap = static_cast<int>(numNametags);
+            g_PlayersOnScreen = static_cast<int>(numNametags);
             
             for (__int64 i = 0; i < numNametags; i++) {
                 ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
@@ -188,11 +242,13 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                                     nametag->bgColor.g = 1.0f;
                                     nametag->bgColor.b = 0.85f;
                                     nametag->bgColor.a = 0.25f;
+                                    g_MsrOnScreen++;
                                 } else if (isInList(sanitizedName, g_qtPlayers)) {
                                     nametag->bgColor.r = 1.0f;
                                     nametag->bgColor.g = 0.0f;
                                     nametag->bgColor.b = 0.0f;
                                     nametag->bgColor.a = 0.3f;
+                                    g_QtOnScreen++;
                                 } else {
                                     nametag->bgColor.r = 0.0f;
                                     nametag->bgColor.g = 0.0f;
@@ -205,11 +261,13 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                                     nametag->bgColor.g = 1.0f;
                                     nametag->bgColor.b = 0.35f;
                                     nametag->bgColor.a = 0.5f;
+                                    g_MsrOnScreen++;
                                 } else if (isInList(sanitizedName, g_qtPlayers)) {
                                     nametag->bgColor.r = 1.0f;
                                     nametag->bgColor.g = 0.0f;
                                     nametag->bgColor.b = 0.0f;
                                     nametag->bgColor.a = 0.3f;
+                                    g_QtOnScreen++;
                                 } else {
                                     nametag->bgColor.r = 0.0f;
                                     nametag->bgColor.g = 0.0f;
@@ -230,13 +288,79 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
 }
 
 __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
-    if (g_NametagColorsEnabled && a2) {
+    if (a2) {
         MinecraftUIRenderContext* context = reinterpret_cast<MinecraftUIRenderContext*>(a2);
-        RectangleArea textRect(2.0f, 2.0f, 200.0f, 30.0f);
-        Color textColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+        RectangleArea fullRect = context->getFullClippingRectangle();
+        float fullWidth = fullRect.right - fullRect.left;
+        float fullHeight = fullRect.bottom - fullRect.top;
+
+        if (fullWidth < 10.0f || fullHeight < 10.0f) {
+            std::cout << "Full clipping rectangle invalid (" << fullRect.left << "," << fullRect.top
+                << " -> " << fullRect.right << "," << fullRect.bottom << "), applying fallback 1920x1080" << std::endl;
+            fullRect = RectangleArea(0.0f, 0.0f, 1920.0f, 1080.0f);
+            fullWidth = 1920.0f;
+            fullHeight = 1080.0f;
+        }
+
+        g_LastFullRect = fullRect;
+
+        float uiMouseX = 0.0f, uiMouseY = 0.0f;
+        mapMouseToUI(g_MousePosX, g_MousePosY, fullRect, uiMouseX, uiMouseY);
+        g_UIMousePosX = uiMouseX;
+        g_UIMousePosY = uiMouseY;
+
+        RectangleArea textRect(2.0f, 2.0f, 600.0f, 140.0f);
         TextMeasureData textMeasure(1.0f, true, false);
         CaretMeasureData caretMeasure;
-        context->drawDebugText(textRect, std::to_string(g_msrPlayers.size()) + " MSR " + std::to_string(g_qtPlayers.size()) + " QT | " + std::to_string(g_FriendAttacksBlocked) + " Hits Blocked", textColor, 0.6f, TextAlignment::LEFT, textMeasure, caretMeasure);
+        if (g_UITextMode == 0) {
+            std::string infoText =
+                "=== Info ===\n"
+                "MMB + LMB             - Add MSR\n"
+                "MMB + RMB + LMB    - Add QT\n"
+                "MMB X2                  - Toggle Rendering\n"
+                "Click to cycle menu";
+            context->drawDebugText(
+                textRect,
+                infoText,
+                Color(1.0f, 1.0f, 1.0f, 1.0f),
+                0.6f,
+                TextAlignment::LEFT,
+                textMeasure,
+                caretMeasure
+            );
+        } else if (g_UITextMode == 1) {
+            std::string statsText =
+                std::to_string(g_msrPlayers.size()) + " MSR " + std::to_string(g_qtPlayers.size()) + " QT Loaded\n" +
+                std::to_string(g_FriendAttacksBlocked) + " Hits Blocked\n" +
+                std::to_string(g_PlayersOnScreen) + "Player " + std::to_string(g_MsrOnScreen) + "MSR " + std::to_string(g_QtOnScreen) + "QT";
+            context->drawDebugText(
+                textRect,
+                statsText,
+                Color(1.0f, 1.0f, 1.0f, 1.0f),
+                0.6f,
+                TextAlignment::LEFT,
+                textMeasure,
+                caretMeasure
+            );
+        }
+        
+
+        g_TextRectCached = textRect;
+
+        float txtH = textRect.bottom - textRect.top;
+        float sqSize = 18.0f;
+        float margin = 8.0f;
+        float sqLeft = textRect.right + margin;
+        float sqTop = textRect.top + (txtH - sqSize) * 0.5f;
+        g_UIButtonRect = RectangleArea(sqLeft, sqTop, sqLeft + sqSize, sqTop + sqSize);
+
+        bool hovered = pointInRect(uiMouseX, uiMouseY, g_UIButtonRect);
+        Color sqFill = hovered ? Color(1.0f, 1.0f, 1.0f, 1.0f) : Color(1.0f, 1.0f, 1.0f, 0.95f);
+        context->fillRectangle(g_UIButtonRect, sqFill, 0.0f);
+        context->drawRectangle(g_UIButtonRect, Color(0.0f, 0.0f, 0.0f, hovered ? 1.0f : 0.8f), 1.0f, 0);
+
+        
     }
 
     __int64 result = 0;
@@ -398,7 +522,7 @@ void initializeHooks() {
 }
 
 void initialize() {
-    //createConsole();
+    createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();
