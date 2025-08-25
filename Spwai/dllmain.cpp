@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <sstream>
 #include <iomanip>
 #include <algorithm>
 
@@ -53,7 +54,7 @@ bool g_MiddleMouseButtonHeld = false;
 
 RectangleArea g_UIButtonRect(0.0f, 0.0f, 0.0f, 0.0f);
 RectangleArea g_TextRectCached(0.0f, 0.0f, 0.0f, 0.0f);
-int g_UITextMode = 0; // 0: Info, 1: Stats
+int g_UITextMode = 0; // 0: Info, 1: Stats, 2: Details
 int g_MsrOnScreen = 0;
 int g_QtOnScreen = 0;
 float g_MousePosX = 0.0f;
@@ -61,37 +62,23 @@ float g_MousePosY = 0.0f;
 float g_UIMousePosX = 0.0f;
 float g_UIMousePosY = 0.0f;
 RectangleArea g_LastFullRect(0.0f, 0.0f, 0.0f, 0.0f);
+const ULONGLONG g_CacheIntervalMs = 10000ULL;
+ULONGLONG g_LastCacheMs = 0ULL;
+int g_LastEntryArrayCount = 0;
 
-static inline bool pointInRect(float x, float y, const RectangleArea& r) {
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-}
+struct CachedNametagInfo {
+    std::string name;
+    std::string sanitizedName;
+    void* entityTypeData;
+    void* secondaryData;
+    float bgR, bgG, bgB, bgA;
+    float textR, textG, textB, textA;
+    float posX, posY, posZ;
+};
 
-static inline void clampToRect(float& x, float& y, const RectangleArea& r) {
-    if (x < r.left) x = r.left;
-    if (x > r.right) x = r.right;
-    if (y < r.top) y = r.top;
-    if (y > r.bottom) y = r.bottom;
-}
+std::vector<CachedNametagInfo> g_CachedNametags;
+int g_CurrentNametagIndex = 0;
 
-static inline void mapMouseToUI(float rawX, float rawY, const RectangleArea& fullRect, float& outX, float& outY) {
-    float fullWidth = fullRect.right - fullRect.left;
-    float fullHeight = fullRect.bottom - fullRect.top;
-    outX = rawX;
-    outY = rawY;
-    bool outside = (rawX < fullRect.left) || (rawX > fullRect.right) || (rawY < fullRect.top) || (rawY > fullRect.bottom);
-    if (outside) {
-        // If raw looks like int16 or another space, try remap; then clamp
-        const float int16Max = 32767.0f;
-        const float int16Min = -32768.0f;
-        float nx = (rawX - int16Min) / (int16Max - int16Min);
-        float ny = (rawY - int16Min) / (int16Max - int16Min);
-        if (nx >= -0.5f && nx <= 1.5f && ny >= -0.5f && ny <= 1.5f) {
-            outX = fullRect.left + nx * fullWidth;
-            outY = fullRect.top + ny * fullHeight;
-        }
-    }
-    clampToRect(outX, outY, fullRect);
-}
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
     if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
@@ -157,7 +144,7 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             float mappedY = g_MousePosY;
             mapMouseToUI(g_MousePosX, g_MousePosY, g_LastFullRect, mappedX, mappedY);
             if (pointInRect(mappedX, mappedY, g_UIButtonRect) || pointInRect(mappedX, mappedY, g_TextRectCached)) {
-                g_UITextMode = (g_UITextMode + 1) % 2;
+                g_UITextMode = (g_UITextMode + 1) % 3;
             }
         }
     }
@@ -184,6 +171,26 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             g_MiddleMouseButtonHeld = false;
         }
     }
+
+    if (button == 4 || button == 5 || button == 6 || button == 7) {
+        int delta = 0;
+        if (action > 0) delta = 1; else if (action < 0) delta = -1;
+        if (delta != 0 && g_UITextMode == 2 && !g_CachedNametags.empty()) {
+            g_CurrentNametagIndex = (g_CurrentNametagIndex + delta) % static_cast<int>(g_CachedNametags.size());
+            if (g_CurrentNametagIndex < 0) g_CurrentNametagIndex += static_cast<int>(g_CachedNametags.size());
+        }
+    }
+
+    if (movementY != 0) {
+        if (g_UITextMode == 2 && !g_CachedNametags.empty()) {
+            int16_t m = movementY;
+            if (m >= 60 || m <= -60) {
+                int delta = (m > 0) ? 1 : -1;
+                g_CurrentNametagIndex = (g_CurrentNametagIndex + delta) % static_cast<int>(g_CachedNametags.size());
+                if (g_CurrentNametagIndex < 0) g_CurrentNametagIndex += static_cast<int>(g_CachedNametags.size());
+            }
+        }
+    }
     
     return g_OriginalMouseDeviceFeed(mouseDevice, button, action, mouseX, mouseY, movementX, movementY, a8);
 }
@@ -194,6 +201,14 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     g_PlayersOnScreen = 0;
     g_MsrOnScreen = 0;
     g_QtOnScreen = 0;
+    // Append-only caching window, clear every g_CacheIntervalMs
+    ULONGLONG nowMs = GetTickCount64();
+    if (g_LastCacheMs == 0ULL) g_LastCacheMs = nowMs;
+    ULONGLONG elapsed = nowMs - g_LastCacheMs;
+    if (elapsed >= g_CacheIntervalMs) {
+        g_CachedNametags.clear();
+        g_LastCacheMs = nowMs;
+    }
     
     if (array && array[2] && array[3]) {
         __int64 startAddr = array[2];
@@ -202,6 +217,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
         if (startAddr && endAddr && startAddr < endAddr) {
             __int64 numNametags = (endAddr - startAddr) / sizeof(::NametagEntry);
             g_PlayersOnScreen = static_cast<int>(numNametags);
+            g_LastEntryArrayCount = static_cast<int>(numNametags);
             
             for (__int64 i = 0; i < numNametags; i++) {
                 ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
@@ -222,6 +238,40 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                         
                         if (!actorName.empty()) {
                             std::string sanitizedName = sanitizeName(actorName);
+
+                            // Cache basic details for details view
+                            CachedNametagInfo cached{};
+                            cached.name = actorName;
+                            cached.sanitizedName = sanitizedName;
+                            cached.entityTypeData = nametag->entityTypeData;
+                            cached.secondaryData = nametag->secondaryData;
+                            cached.bgR = nametag->bgColor.r;
+                            cached.bgG = nametag->bgColor.g;
+                            cached.bgB = nametag->bgColor.b;
+                            cached.bgA = nametag->bgColor.a;
+                            cached.textR = nametag->textColor.r;
+                            cached.textG = nametag->textColor.g;
+                            cached.textB = nametag->textColor.b;
+                            cached.textA = nametag->textColor.a;
+                            cached.posX = nametag->posX;
+                            cached.posY = nametag->posY;
+                            cached.posZ = nametag->posZ;
+                            // Append-only: if exists, refresh dynamic fields in-place; do not remove
+                            bool found = false;
+                            for (auto& e : g_CachedNametags) {
+                                if (e.entityTypeData == cached.entityTypeData && e.secondaryData == cached.secondaryData && e.sanitizedName == cached.sanitizedName) {
+                                    // Update dynamic values so Details view stays current without reordering
+                                    e.bgR = cached.bgR; e.bgG = cached.bgG; e.bgB = cached.bgB; e.bgA = cached.bgA;
+                                    e.textR = cached.textR; e.textG = cached.textG; e.textB = cached.textB; e.textA = cached.textA;
+                                    e.posX = cached.posX; e.posY = cached.posY; e.posZ = cached.posZ;
+                                    e.name = cached.name; // Raw name could change color codes
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                g_CachedNametags.push_back(cached);
+                            }
                             
                             if (!g_NametagColorsEnabled) {
                                 continue;
@@ -275,6 +325,19 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                                     nametag->bgColor.a = 0.0f;
                                 }
                             }
+
+                            if (g_UITextMode == 2 && !g_CachedNametags.empty()) {
+                                int idx = g_CurrentNametagIndex;
+                                if (idx < 0) idx = 0;
+                                if (idx >= static_cast<int>(g_CachedNametags.size())) idx = static_cast<int>(g_CachedNametags.size()) - 1;
+                                const CachedNametagInfo& sel = g_CachedNametags[idx];
+                                if (sel.entityTypeData == nametag->entityTypeData && sel.secondaryData == nametag->secondaryData && sel.sanitizedName == sanitizedName) {
+                                    nametag->bgColor.r = 1.0f;
+                                    nametag->bgColor.g = 0.6f;
+                                    nametag->bgColor.b = 0.0f;
+                                    nametag->bgColor.a = 0.6f;
+                                }
+                            }
                         }
                     }
                 } catch (...) {
@@ -310,7 +373,7 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
         g_UIMousePosX = uiMouseX;
         g_UIMousePosY = uiMouseY;
 
-        RectangleArea textRect(2.0f, 2.0f, 600.0f, 140.0f);
+        RectangleArea textRect(2.0f, 2.0f, fullRect.right - 2.0f, 140.0f);
         TextMeasureData textMeasure(1.0f, true, false);
         CaretMeasureData caretMeasure;
         if (g_UITextMode == 0) {
@@ -332,8 +395,9 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
         } else if (g_UITextMode == 1) {
             std::string statsText =
                 std::to_string(g_msrPlayers.size()) + " MSR " + std::to_string(g_qtPlayers.size()) + " QT Loaded\n" +
-                std::to_string(g_FriendAttacksBlocked) + " Hits Blocked\n" +
-                std::to_string(g_PlayersOnScreen) + "Player " + std::to_string(g_MsrOnScreen) + "MSR " + std::to_string(g_QtOnScreen) + "QT";
+                std::to_string(g_PlayersOnScreen) + " Player " + std::to_string(g_MsrOnScreen) + " MSR " + std::to_string(g_QtOnScreen) + " QT\n" +
+                std::to_string(g_FriendAttacksBlocked) + " Hits Blocked";
+              
             context->drawDebugText(
                 textRect,
                 statsText,
@@ -343,6 +407,64 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
                 textMeasure,
                 caretMeasure
             );
+        } else if (g_UITextMode == 2) {
+            if (!g_CachedNametags.empty()) {
+                if (g_CurrentNametagIndex >= static_cast<int>(g_CachedNametags.size())) {
+                    g_CurrentNametagIndex = static_cast<int>(g_CachedNametags.size()) - 1;
+                }
+                if (g_CurrentNametagIndex < 0) {
+                    g_CurrentNametagIndex = 0;
+                }
+                // Live refresh: update dynamic fields from latest nametag memory if still valid
+                CachedNametagInfo c = g_CachedNametags[g_CurrentNametagIndex];
+                // Search for a matching entry by pointer pair to refresh bg/text colors and pos
+                // Note: if layout changes, this remains a best-effort refresh
+                for (const CachedNametagInfo& latest : g_CachedNametags) {
+                    if (latest.entityTypeData == c.entityTypeData && latest.secondaryData == c.secondaryData && latest.sanitizedName == c.sanitizedName) {
+                        c.bgR = latest.bgR; c.bgG = latest.bgG; c.bgB = latest.bgB; c.bgA = latest.bgA;
+                        c.textR = latest.textR; c.textG = latest.textG; c.textB = latest.textB; c.textA = latest.textA;
+                        c.posX = latest.posX; c.posY = latest.posY; c.posZ = latest.posZ;
+                        break;
+                    }
+                }
+                std::ostringstream oss;
+                oss.setf(std::ios::fixed); oss << std::setprecision(2);
+                // Prevent RawName line wrapping by widening the rect below and keeping RawName first on its own line
+                oss << "RawName: " << c.name << "§r\n";
+                oss << "SanitizedName: " << c.sanitizedName << "\n";
+                oss << "EntityData: " << c.entityTypeData << "\n";
+                oss << "EntityData2: " << c.secondaryData << "\n";
+                oss << "BgColor: " << c.bgR << ", " << c.bgG << ", " << c.bgB << ", " << c.bgA << "\n";
+                oss << "TextColor: " << c.textR << ", " << c.textG << ", " << c.textB << ", " << c.textA << "\n";
+                oss << "Pos: " << c.posX << ", " << c.posY << ", " << c.posZ << "\n";
+                // Extra: entry array count and time until next cache clear
+                {
+                    ULONGLONG nowMsUI = GetTickCount64();
+                    ULONGLONG elapsedMs = (nowMsUI >= g_LastCacheMs) ? (nowMsUI - g_LastCacheMs) : 0ULL;
+                    int secondsLeft = static_cast<int>((g_CacheIntervalMs - (elapsedMs % g_CacheIntervalMs)) / 1000ULL);
+                    oss << "Entries: " << g_LastEntryArrayCount << "\n";
+                    oss << "Next cache clear: " << secondsLeft << "/" << (g_CacheIntervalMs / 1000ULL) << "\n";
+                }
+                context->drawDebugText(
+                    textRect,
+                    oss.str(),
+                    Color(1.0f, 1.0f, 1.0f, 1.0f),
+                    0.6f,
+                    TextAlignment::LEFT,
+                    textMeasure,
+                    caretMeasure
+                );
+            } else {
+                context->drawDebugText(
+                    textRect,
+                    std::string("No Nametags"),
+                    Color(1.0f, 1.0f, 1.0f, 1.0f),
+                    0.6f,
+                    TextAlignment::LEFT,
+                    textMeasure,
+                    caretMeasure
+                );
+            }
         }
         
 
