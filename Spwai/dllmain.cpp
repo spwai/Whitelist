@@ -9,6 +9,7 @@
 #include <libhat.hpp>
 #include "Utils/Utils.hpp"
 #include "SDK/NametagEntry.hpp"
+#include "SDK/MinecraftUIRenderContext.hpp"
 
 typedef unsigned __int64 QWORD;
 
@@ -19,6 +20,7 @@ using GameModeAttack = __int64(__fastcall*)(__int64 gamemode, __int64 actor, cha
 using ActorGetNameTag = void** (__fastcall*)(__int64 actor);
 using MouseDeviceFeed = __int64(__fastcall*)(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8);
 using NametagObject = QWORD*(__fastcall*)(__int64 a1, QWORD* a2, __int64 a3);
+using MinecraftUIRenderContextFunc = __int64(__fastcall*)(__int64 contextPtr, __int64 renderData);
 
 GameModeAttack g_GameModeAttack = nullptr;
 ActorGetNameTag g_ActorGetNameTag = nullptr;
@@ -30,8 +32,18 @@ MouseDeviceFeed g_OriginalMouseDeviceFeed = nullptr;
 NametagObject g_NametagObject = nullptr;
 NametagObject g_OriginalNametagObject = nullptr;
 
+MinecraftUIRenderContextFunc g_MinecraftUIRenderContext = nullptr;
+MinecraftUIRenderContextFunc g_OriginalMinecraftUIRenderContext = nullptr;
+
+uintptr_t g_RenderCtxCallAddr = 0;
+unsigned char g_RenderCtxOriginalCallBytes[5] = {0};
+MinecraftUIRenderContextFunc g_RenderCtxOriginalTarget = nullptr;
+
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
+
+int g_PlayersInMap = 0;
+int g_FriendAttacksBlocked = 0;
 
 bool g_RightMouseButtonHeld = false;
 bool g_LeftMouseButtonHeld = false;
@@ -79,6 +91,7 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
             if (!actorName.empty()) {
                 std::string sanitizedName = sanitizeName(actorName);
                 if (isInList(sanitizedName, g_msrPlayers)) {
+                    g_FriendAttacksBlocked++;
                     return 0;
                 }
             }
@@ -126,12 +139,15 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
 QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     QWORD* result = g_OriginalNametagObject(a1, array, a3);
     
+    g_PlayersInMap = 0;
+    
     if (array && array[2] && array[3]) {
         __int64 startAddr = array[2];
         __int64 endAddr = array[3];
         
         if (startAddr && endAddr && startAddr < endAddr) {
             __int64 numNametags = (endAddr - startAddr) / sizeof(::NametagEntry);
+            g_PlayersInMap = static_cast<int>(numNametags);
             
             for (__int64 i = 0; i < numNametags; i++) {
                 ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
@@ -213,6 +229,41 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     return result;
 }
 
+__int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
+    if (g_NametagColorsEnabled && a2) {
+        MinecraftUIRenderContext* context = reinterpret_cast<MinecraftUIRenderContext*>(a2);
+        RectangleArea textRect(2.0f, 2.0f, 200.0f, 30.0f);
+        Color textColor(1.0f, 1.0f, 1.0f, 1.0f);
+        TextMeasureData textMeasure(1.0f, true, false);
+        CaretMeasureData caretMeasure;
+        context->drawDebugText(textRect, std::to_string(g_msrPlayers.size()) + " MSR " + std::to_string(g_qtPlayers.size()) + " QT | " + std::to_string(g_FriendAttacksBlocked) + " Hits Blocked", textColor, 0.6f, TextAlignment::LEFT, textMeasure, caretMeasure);
+    }
+
+    __int64 result = 0;
+    if (g_RenderCtxOriginalTarget) {
+        result = g_RenderCtxOriginalTarget(a1, a2);
+    }
+    return result;
+}
+
+static bool writeRelativeCall(uintptr_t callAddr, void* newTarget) {
+    DWORD oldProt;
+    if (!VirtualProtect(reinterpret_cast<void*>(callAddr), 5, PAGE_EXECUTE_READWRITE, &oldProt)) return false;
+    int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(newTarget) - (callAddr + 5));
+    unsigned char bytes[5] = { 0xE8, 0, 0, 0, 0 };
+    memcpy(&bytes[1], &rel, sizeof(rel));
+    memcpy(reinterpret_cast<void*>(callAddr), bytes, 5);
+    DWORD tmp; VirtualProtect(reinterpret_cast<void*>(callAddr), 5, oldProt, &tmp);
+    return true;
+}
+
+static void restoreOriginalCall(uintptr_t callAddr, const unsigned char original[5]) {
+    DWORD oldProt;
+    if (!VirtualProtect(reinterpret_cast<void*>(callAddr), 5, PAGE_EXECUTE_READWRITE, &oldProt)) return;
+    memcpy(reinterpret_cast<void*>(callAddr), original, 5);
+    DWORD tmp; VirtualProtect(reinterpret_cast<void*>(callAddr), 5, oldProt, &tmp);
+}
+
 void createConsole() {
     AllocConsole();
     freopen_s(&g_Console, "CONOUT$", "w", stdout);
@@ -281,6 +332,24 @@ void scanSignatures() {
             std::cout << "NametagObject not found" << std::endl;
         }
     }
+    
+    {
+        std::string_view callsiteSig = "E8 ?? ?? ?? ?? 48 8B 44 24 50 48 8D 4C 24 50 48 8B 80 D8 00 00 00";
+        auto sigParsed = hat::parse_signature(callsiteSig);
+        if (sigParsed.has_value()) {
+            auto sigResult = hat::find_pattern(sigParsed.value(), ".text");
+            if (sigResult.has_result()) {
+                g_RenderCtxCallAddr = reinterpret_cast<uintptr_t>(sigResult.get());
+                memcpy(g_RenderCtxOriginalCallBytes, reinterpret_cast<void*>(g_RenderCtxCallAddr), 5);
+                uintptr_t rel = *reinterpret_cast<int32_t*>(g_RenderCtxCallAddr + 1);
+                uintptr_t target = g_RenderCtxCallAddr + 5 + rel;
+                g_RenderCtxOriginalTarget = reinterpret_cast<MinecraftUIRenderContextFunc>(target);
+                std::cout << "MinecraftUIRenderContext found" << std::endl;
+            } else {
+                std::cout << "MinecraftUIRenderContext not found" << std::endl;
+            }
+        }
+    }
 }
 
 void initializeHooks() {
@@ -291,9 +360,7 @@ void initializeHooks() {
     
     if (g_GameModeAttack) {
         if (MH_CreateHook(g_GameModeAttack, &hookedGameModeAttack, reinterpret_cast<LPVOID*>(&g_OriginalGameModeAttack)) == MH_OK) {
-            if (MH_EnableHook(g_GameModeAttack) == MH_OK) {
-                
-            } else {
+            if (MH_EnableHook(g_GameModeAttack) != MH_OK) {
                 std::cout << "Failed to enable GameMode::attack hook" << std::endl;
             }
         } else {
@@ -303,9 +370,7 @@ void initializeHooks() {
     
     if (g_MouseDeviceFeed) {
         if (MH_CreateHook(g_MouseDeviceFeed, &hookedMouseDeviceFeed, reinterpret_cast<LPVOID*>(&g_OriginalMouseDeviceFeed)) == MH_OK) {
-            if (MH_EnableHook(g_MouseDeviceFeed) == MH_OK) {
-                
-            } else {
+            if (MH_EnableHook(g_MouseDeviceFeed) != MH_OK) {
                 std::cout << "Failed to enable MouseDevice::feed hook" << std::endl;
             }
         } else {
@@ -315,18 +380,25 @@ void initializeHooks() {
     
     if (g_NametagObject) {
         if (MH_CreateHook(g_NametagObject, &hookedNametagObject, reinterpret_cast<LPVOID*>(&g_OriginalNametagObject)) == MH_OK) {
-            if (MH_EnableHook(g_NametagObject) == MH_OK) {
-                
-            } else {
+            if (MH_EnableHook(g_NametagObject) != MH_OK) {
                 std::cout << "Failed to enable NametagObject hook" << std::endl;
             }
         } else {
             std::cout << "Failed to create NametagObject hook" << std::endl;
         }
     }
+
+    if (g_RenderCtxCallAddr && g_RenderCtxOriginalTarget) {
+        if (!writeRelativeCall(g_RenderCtxCallAddr, reinterpret_cast<void*>(&wrappedMinecraftUIRenderContext))) {
+            std::cout << "Failed to patch UI callsite" << std::endl;
+        } else {
+            std::cout << "UI callsite patched to wrapper" << std::endl;
+        }
+    }
 }
 
 void initialize() {
+    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();
@@ -336,6 +408,10 @@ void cleanup() {
     if (g_Console) {
         fclose(g_Console);
         g_Console = nullptr;
+    }
+    
+    if (g_RenderCtxCallAddr) {
+        restoreOriginalCall(g_RenderCtxCallAddr, g_RenderCtxOriginalCallBytes);
     }
     
     MH_Uninitialize();
