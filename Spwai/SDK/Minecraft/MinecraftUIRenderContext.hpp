@@ -3,29 +3,28 @@
 #include <cstdint>
 #include <string>
 
-// Forward declarations for required types
 struct BitmapFont;
 struct TextHolder;
 struct UIColor;
 struct Vector4;
 struct CaretMeasureData;
 
-// Additional forward declarations
 class ComponentRenderBatch;
 class NinesliceInfo;
 class HashedString;
 
-// New types based on the vtable
 struct Color {
     float r, g, b, a;
     
-    constexpr Color(float r, float g, float b, float a) : r(r), g(g), b(b), a(a) {}
+    constexpr Color(float r, float g, float b, float a) 
+        : r(r), g(g), b(b), a(a) {}
 };
 
 struct Vec2 {
     float x, y;
     
-    constexpr Vec2(float x, float y) : x(x), y(y) {}
+    constexpr Vec2(float x, float y) 
+        : x(x), y(y) {}
 };
 
 struct RectangleArea {
@@ -58,7 +57,6 @@ struct CaretMeasureData {
 };
 
 class Font {
-    // Placeholder for Font class
 };
 
 class MinecraftUIRenderContext {

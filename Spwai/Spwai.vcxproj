@@ -144,14 +144,16 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="SDK\Signature.cpp" />
     <ClCompile Include="Utils\Utils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SDK\MinecraftUIRenderContext.hpp" />
-    <ClInclude Include="SDK\NametagEntry.hpp" />
+    <ClInclude Include="SDK\Minecraft\MinecraftUIRenderContext.hpp" />
+    <ClInclude Include="SDK\Minecraft\NametagEntry.hpp" />
+    <ClInclude Include="SDK\Signature.hpp" />
     <ClInclude Include="Utils\Utils.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

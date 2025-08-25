@@ -5,11 +5,13 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+
 #include <MinHook.h>
 #include <libhat.hpp>
 #include "Utils/Utils.hpp"
-#include "SDK/NametagEntry.hpp"
-#include "SDK/MinecraftUIRenderContext.hpp"
+#include "SDK/Minecraft/NametagEntry.hpp"
+#include "SDK/Minecraft/MinecraftUIRenderContext.hpp"
+#include "SDK/Signature.hpp"
 
 typedef unsigned __int64 QWORD;
 
@@ -51,7 +53,6 @@ bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
 
- 
 int g_UITextMode = 0;
 std::string g_LastHitRawName;
 std::string g_LastHitSanitizedName;
@@ -60,8 +61,6 @@ int g_MsrOnScreen = 0;
 int g_QtOnScreen = 0;
 float g_MousePosX = 0.0f;
 float g_MousePosY = 0.0f;
- 
-
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
     g_LastHitEntityPtr = actor;
@@ -73,6 +72,7 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
             g_LastHitSanitizedName = actorName.empty() ? std::string("") : sanitizeName(actorName);
         }
     }
+    
     if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
         void** nameTag = g_ActorGetNameTag(actor);
         if (nameTag) {
@@ -161,9 +161,9 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
         int delta = 0;
         if (action > 0) delta = 1; else if (action < 0) delta = -1;
         if (g_RightMouseButtonHeld) {
-            if (delta < 0) { // scroll down on this system: next (+1)
+            if (delta < 0) {
                 g_UITextMode = (g_UITextMode + 1) % 4;
-            } else if (delta > 0) { // scroll up on this system: previous (-1)
+            } else if (delta > 0) {
                 g_UITextMode = (g_UITextMode + 3) % 4;
             }
         }
@@ -178,6 +178,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     g_PlayersOnScreen = 0;
     g_MsrOnScreen = 0;
     g_QtOnScreen = 0;
+    
     if (array && array[2] && array[3]) {
         __int64 startAddr = array[2];
         __int64 endAddr = array[3];
@@ -279,6 +280,7 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
         RectangleArea textRect(2.0f, 2.0f, fullRect.right - 2.0f, 120.0f);
         TextMeasureData textMeasure(1.0f, true, false);
         CaretMeasureData caretMeasure;
+        
         if (g_UITextMode == 0) {
             std::string infoText =
                 "MMB + LMB -> Add MSR\n"
@@ -328,7 +330,6 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
                 caretMeasure
             );
         } else if (g_UITextMode == 3) {
-            // Off: render nothing
         }   
     }
 
@@ -362,87 +363,6 @@ void createConsole() {
     freopen_s(&g_Console, "CONOUT$", "w", stdout);
     freopen_s(&g_Console, "CONIN$", "r", stdin);
     SetConsoleTitleA("Spwai");
-}
-
-void scanSignatures() {
-    std::cout << "Scanning for signatures..." << std::endl;
-    
-    std::string_view attackSig = "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8D AC 24 A0 FD FF FF 48 81 EC 60 03 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 50 02 00 00 45";
-    
-    auto attackSignature = hat::parse_signature(attackSig);
-    if (attackSignature.has_value()) {
-        auto attackResult = hat::find_pattern(attackSignature.value(), ".text");
-        
-        if (attackResult.has_result()) {
-            g_GameModeAttack = reinterpret_cast<GameModeAttack>(attackResult.get());
-            g_OriginalGameModeAttack = g_GameModeAttack;
-            std::cout << "GameMode::attack found" << std::endl;
-        } else {
-            std::cout << "GameMode::attack not found" << std::endl;
-        }
-    }
-    
-    std::string_view getNameTagSig = "48 83 EC 28 48 8B 81 28 01 00 00 48 85 C0 74 4F";
-    
-    auto getNameTagSignature = hat::parse_signature(getNameTagSig);
-    if (getNameTagSignature.has_value()) {
-        auto getNameTagResult = hat::find_pattern(getNameTagSignature.value(), ".text");
-        
-        if (getNameTagResult.has_result()) {
-            g_ActorGetNameTag = reinterpret_cast<ActorGetNameTag>(getNameTagResult.get());
-            std::cout << "Actor::getNameTag found" << std::endl;
-        } else {
-            std::cout << "Actor::getNameTag not found" << std::endl;
-        }
-    }
-
-    std::string_view mouseDeviceFeedSig = "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 54 41 55 41 56 41 57 48 83 EC 60";
-    
-    auto mouseDeviceFeedSignature = hat::parse_signature(mouseDeviceFeedSig);
-    if (mouseDeviceFeedSignature.has_value()) {
-        auto mouseDeviceFeedResult = hat::find_pattern(mouseDeviceFeedSignature.value(), ".text");
-        
-        if (mouseDeviceFeedResult.has_result()) {
-            g_MouseDeviceFeed = reinterpret_cast<MouseDeviceFeed>(mouseDeviceFeedResult.get());
-            g_OriginalMouseDeviceFeed = g_MouseDeviceFeed;
-            std::cout << "MouseDevice::feed found" << std::endl;
-        } else {
-            std::cout << "MouseDevice::feed not found" << std::endl;
-        }
-    }
-    
-    std::string_view nametagObjectSig = "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 10 FE FF FF 48 81 EC F0 02 00 00 0F";
-    
-    auto nametagObjectSignature = hat::parse_signature(nametagObjectSig);
-    if (nametagObjectSignature.has_value()) {
-        auto nametagObjectResult = hat::find_pattern(nametagObjectSignature.value(), ".text");
-        
-        if (nametagObjectResult.has_result()) {
-            g_NametagObject = reinterpret_cast<NametagObject>(nametagObjectResult.get());
-            g_OriginalNametagObject = g_NametagObject;
-            std::cout << "NametagObject found" << std::endl;
-        } else {
-            std::cout << "NametagObject not found" << std::endl;
-        }
-    }
-    
-    {
-        std::string_view callsiteSig = "E8 ?? ?? ?? ?? 48 8B 44 24 50 48 8D 4C 24 50 48 8B 80 D8 00 00 00";
-        auto sigParsed = hat::parse_signature(callsiteSig);
-        if (sigParsed.has_value()) {
-            auto sigResult = hat::find_pattern(sigParsed.value(), ".text");
-            if (sigResult.has_result()) {
-                g_RenderCtxCallAddr = reinterpret_cast<uintptr_t>(sigResult.get());
-                memcpy(g_RenderCtxOriginalCallBytes, reinterpret_cast<void*>(g_RenderCtxCallAddr), 5);
-                uintptr_t rel = *reinterpret_cast<int32_t*>(g_RenderCtxCallAddr + 1);
-                uintptr_t target = g_RenderCtxCallAddr + 5 + rel;
-                g_RenderCtxOriginalTarget = reinterpret_cast<MinecraftUIRenderContextFunc>(target);
-                std::cout << "MinecraftUIRenderContext found" << std::endl;
-            } else {
-                std::cout << "MinecraftUIRenderContext not found" << std::endl;
-            }
-        }
-    }
 }
 
 void initializeHooks() {
@@ -491,7 +411,6 @@ void initializeHooks() {
 }
 
 void initialize() {
-    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();
