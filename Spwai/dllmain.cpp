@@ -2,10 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <sstream>
-#include <iomanip>
 #include <algorithm>
-
 #include <MinHook.h>
 #include <libhat.hpp>
 #include "Utils/Utils.hpp"
@@ -52,32 +49,13 @@ bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
 
-RectangleArea g_UIButtonRect(0.0f, 0.0f, 0.0f, 0.0f);
-RectangleArea g_TextRectCached(0.0f, 0.0f, 0.0f, 0.0f);
-int g_UITextMode = 0; // 0: Info, 1: Stats, 2: Details
+ 
+int g_UITextMode = 0;
 int g_MsrOnScreen = 0;
 int g_QtOnScreen = 0;
 float g_MousePosX = 0.0f;
 float g_MousePosY = 0.0f;
-float g_UIMousePosX = 0.0f;
-float g_UIMousePosY = 0.0f;
-RectangleArea g_LastFullRect(0.0f, 0.0f, 0.0f, 0.0f);
-const ULONGLONG g_CacheIntervalMs = 10000ULL;
-ULONGLONG g_LastCacheMs = 0ULL;
-int g_LastEntryArrayCount = 0;
-
-struct CachedNametagInfo {
-    std::string name;
-    std::string sanitizedName;
-    void* entityTypeData;
-    void* secondaryData;
-    float bgR, bgG, bgB, bgA;
-    float textR, textG, textB, textA;
-    float posX, posY, posZ;
-};
-
-std::vector<CachedNametagInfo> g_CachedNametags;
-int g_CurrentNametagIndex = 0;
+ 
 
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
@@ -139,13 +117,6 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             g_LeftMouseButtonHeld = true;
         } else if (action == 0) {
             g_LeftMouseButtonHeld = false;
-            // Treat left-button release as click; toggle if released over text or square
-            float mappedX = g_MousePosX;
-            float mappedY = g_MousePosY;
-            mapMouseToUI(g_MousePosX, g_MousePosY, g_LastFullRect, mappedX, mappedY);
-            if (pointInRect(mappedX, mappedY, g_UIButtonRect) || pointInRect(mappedX, mappedY, g_TextRectCached)) {
-                g_UITextMode = (g_UITextMode + 1) % 3;
-            }
         }
     }
     
@@ -175,19 +146,11 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
     if (button == 4 || button == 5 || button == 6 || button == 7) {
         int delta = 0;
         if (action > 0) delta = 1; else if (action < 0) delta = -1;
-        if (delta != 0 && g_UITextMode == 2 && !g_CachedNametags.empty()) {
-            g_CurrentNametagIndex = (g_CurrentNametagIndex + delta) % static_cast<int>(g_CachedNametags.size());
-            if (g_CurrentNametagIndex < 0) g_CurrentNametagIndex += static_cast<int>(g_CachedNametags.size());
-        }
-    }
-
-    if (movementY != 0) {
-        if (g_UITextMode == 2 && !g_CachedNametags.empty()) {
-            int16_t m = movementY;
-            if (m >= 60 || m <= -60) {
-                int delta = (m > 0) ? 1 : -1;
-                g_CurrentNametagIndex = (g_CurrentNametagIndex + delta) % static_cast<int>(g_CachedNametags.size());
-                if (g_CurrentNametagIndex < 0) g_CurrentNametagIndex += static_cast<int>(g_CachedNametags.size());
+        if (g_RightMouseButtonHeld) {
+            if (delta > 0) {
+                g_UITextMode = (g_UITextMode + 2) % 3;
+            } else if (delta < 0) {
+                g_UITextMode = (g_UITextMode + 1) % 3;
             }
         }
     }
@@ -201,15 +164,6 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     g_PlayersOnScreen = 0;
     g_MsrOnScreen = 0;
     g_QtOnScreen = 0;
-    // Append-only caching window, clear every g_CacheIntervalMs
-    ULONGLONG nowMs = GetTickCount64();
-    if (g_LastCacheMs == 0ULL) g_LastCacheMs = nowMs;
-    ULONGLONG elapsed = nowMs - g_LastCacheMs;
-    if (elapsed >= g_CacheIntervalMs) {
-        g_CachedNametags.clear();
-        g_LastCacheMs = nowMs;
-    }
-    
     if (array && array[2] && array[3]) {
         __int64 startAddr = array[2];
         __int64 endAddr = array[3];
@@ -217,7 +171,6 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
         if (startAddr && endAddr && startAddr < endAddr) {
             __int64 numNametags = (endAddr - startAddr) / sizeof(::NametagEntry);
             g_PlayersOnScreen = static_cast<int>(numNametags);
-            g_LastEntryArrayCount = static_cast<int>(numNametags);
             
             for (__int64 i = 0; i < numNametags; i++) {
                 ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
@@ -239,40 +192,6 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                         if (!actorName.empty()) {
                             std::string sanitizedName = sanitizeName(actorName);
 
-                            // Cache basic details for details view
-                            CachedNametagInfo cached{};
-                            cached.name = actorName;
-                            cached.sanitizedName = sanitizedName;
-                            cached.entityTypeData = nametag->entityTypeData;
-                            cached.secondaryData = nametag->secondaryData;
-                            cached.bgR = nametag->bgColor.r;
-                            cached.bgG = nametag->bgColor.g;
-                            cached.bgB = nametag->bgColor.b;
-                            cached.bgA = nametag->bgColor.a;
-                            cached.textR = nametag->textColor.r;
-                            cached.textG = nametag->textColor.g;
-                            cached.textB = nametag->textColor.b;
-                            cached.textA = nametag->textColor.a;
-                            cached.posX = nametag->posX;
-                            cached.posY = nametag->posY;
-                            cached.posZ = nametag->posZ;
-                            // Append-only: if exists, refresh dynamic fields in-place; do not remove
-                            bool found = false;
-                            for (auto& e : g_CachedNametags) {
-                                if (e.entityTypeData == cached.entityTypeData && e.secondaryData == cached.secondaryData && e.sanitizedName == cached.sanitizedName) {
-                                    // Update dynamic values so Details view stays current without reordering
-                                    e.bgR = cached.bgR; e.bgG = cached.bgG; e.bgB = cached.bgB; e.bgA = cached.bgA;
-                                    e.textR = cached.textR; e.textG = cached.textG; e.textB = cached.textB; e.textA = cached.textA;
-                                    e.posX = cached.posX; e.posY = cached.posY; e.posZ = cached.posZ;
-                                    e.name = cached.name; // Raw name could change color codes
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if (!found) {
-                                g_CachedNametags.push_back(cached);
-                            }
-                            
                             if (!g_NametagColorsEnabled) {
                                 continue;
                             }
@@ -325,19 +244,6 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                                     nametag->bgColor.a = 0.0f;
                                 }
                             }
-
-                            if (g_UITextMode == 2 && !g_CachedNametags.empty()) {
-                                int idx = g_CurrentNametagIndex;
-                                if (idx < 0) idx = 0;
-                                if (idx >= static_cast<int>(g_CachedNametags.size())) idx = static_cast<int>(g_CachedNametags.size()) - 1;
-                                const CachedNametagInfo& sel = g_CachedNametags[idx];
-                                if (sel.entityTypeData == nametag->entityTypeData && sel.secondaryData == nametag->secondaryData && sel.sanitizedName == sanitizedName) {
-                                    nametag->bgColor.r = 1.0f;
-                                    nametag->bgColor.g = 0.6f;
-                                    nametag->bgColor.b = 0.0f;
-                                    nametag->bgColor.a = 0.6f;
-                                }
-                            }
                         }
                     }
                 } catch (...) {
@@ -355,34 +261,16 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
         MinecraftUIRenderContext* context = reinterpret_cast<MinecraftUIRenderContext*>(a2);
 
         RectangleArea fullRect = context->getFullClippingRectangle();
-        float fullWidth = fullRect.right - fullRect.left;
-        float fullHeight = fullRect.bottom - fullRect.top;
 
-        if (fullWidth < 10.0f || fullHeight < 10.0f) {
-            std::cout << "Full clipping rectangle invalid (" << fullRect.left << "," << fullRect.top
-                << " -> " << fullRect.right << "," << fullRect.bottom << "), applying fallback 1920x1080" << std::endl;
-            fullRect = RectangleArea(0.0f, 0.0f, 1920.0f, 1080.0f);
-            fullWidth = 1920.0f;
-            fullHeight = 1080.0f;
-        }
-
-        g_LastFullRect = fullRect;
-
-        float uiMouseX = 0.0f, uiMouseY = 0.0f;
-        mapMouseToUI(g_MousePosX, g_MousePosY, fullRect, uiMouseX, uiMouseY);
-        g_UIMousePosX = uiMouseX;
-        g_UIMousePosY = uiMouseY;
-
-        RectangleArea textRect(2.0f, 2.0f, fullRect.right - 2.0f, 140.0f);
+        RectangleArea textRect(2.0f, 2.0f, fullRect.right - 2.0f, 120.0f);
         TextMeasureData textMeasure(1.0f, true, false);
         CaretMeasureData caretMeasure;
         if (g_UITextMode == 0) {
             std::string infoText =
-                "=== Info ===\n"
-                "MMB + LMB             - Add MSR\n"
-                "MMB + RMB + LMB    - Add QT\n"
-                "MMB X2                  - Toggle Rendering\n"
-                "Click to cycle menu";
+                "MMB + LMB -> Add MSR\n"
+                "MMB + RMB + LMB -> Add QT\n"
+                "MMB X2 -> Toggle Rendering\n"
+                "RMB + Scroll Wheel -> Cycle Menu";
             context->drawDebugText(
                 textRect,
                 infoText,
@@ -408,81 +296,8 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
                 caretMeasure
             );
         } else if (g_UITextMode == 2) {
-            if (!g_CachedNametags.empty()) {
-                if (g_CurrentNametagIndex >= static_cast<int>(g_CachedNametags.size())) {
-                    g_CurrentNametagIndex = static_cast<int>(g_CachedNametags.size()) - 1;
-                }
-                if (g_CurrentNametagIndex < 0) {
-                    g_CurrentNametagIndex = 0;
-                }
-                // Live refresh: update dynamic fields from latest nametag memory if still valid
-                CachedNametagInfo c = g_CachedNametags[g_CurrentNametagIndex];
-                // Search for a matching entry by pointer pair to refresh bg/text colors and pos
-                // Note: if layout changes, this remains a best-effort refresh
-                for (const CachedNametagInfo& latest : g_CachedNametags) {
-                    if (latest.entityTypeData == c.entityTypeData && latest.secondaryData == c.secondaryData && latest.sanitizedName == c.sanitizedName) {
-                        c.bgR = latest.bgR; c.bgG = latest.bgG; c.bgB = latest.bgB; c.bgA = latest.bgA;
-                        c.textR = latest.textR; c.textG = latest.textG; c.textB = latest.textB; c.textA = latest.textA;
-                        c.posX = latest.posX; c.posY = latest.posY; c.posZ = latest.posZ;
-                        break;
-                    }
-                }
-                std::ostringstream oss;
-                oss.setf(std::ios::fixed); oss << std::setprecision(2);
-                // Prevent RawName line wrapping by widening the rect below and keeping RawName first on its own line
-                oss << "RawName: " << c.name << "§r\n";
-                oss << "SanitizedName: " << c.sanitizedName << "\n";
-                oss << "EntityData: " << c.entityTypeData << "\n";
-                oss << "EntityData2: " << c.secondaryData << "\n";
-                oss << "BgColor: " << c.bgR << ", " << c.bgG << ", " << c.bgB << ", " << c.bgA << "\n";
-                oss << "TextColor: " << c.textR << ", " << c.textG << ", " << c.textB << ", " << c.textA << "\n";
-                oss << "Pos: " << c.posX << ", " << c.posY << ", " << c.posZ << "\n";
-                // Extra: entry array count and time until next cache clear
-                {
-                    ULONGLONG nowMsUI = GetTickCount64();
-                    ULONGLONG elapsedMs = (nowMsUI >= g_LastCacheMs) ? (nowMsUI - g_LastCacheMs) : 0ULL;
-                    int secondsLeft = static_cast<int>((g_CacheIntervalMs - (elapsedMs % g_CacheIntervalMs)) / 1000ULL);
-                    oss << "Entries: " << g_LastEntryArrayCount << "\n";
-                    oss << "Next cache clear: " << secondsLeft << "/" << (g_CacheIntervalMs / 1000ULL) << "\n";
-                }
-                context->drawDebugText(
-                    textRect,
-                    oss.str(),
-                    Color(1.0f, 1.0f, 1.0f, 1.0f),
-                    0.6f,
-                    TextAlignment::LEFT,
-                    textMeasure,
-                    caretMeasure
-                );
-            } else {
-                context->drawDebugText(
-                    textRect,
-                    std::string("No Nametags"),
-                    Color(1.0f, 1.0f, 1.0f, 1.0f),
-                    0.6f,
-                    TextAlignment::LEFT,
-                    textMeasure,
-                    caretMeasure
-                );
-            }
-        }
-        
-
-        g_TextRectCached = textRect;
-
-        float txtH = textRect.bottom - textRect.top;
-        float sqSize = 18.0f;
-        float margin = 8.0f;
-        float sqLeft = textRect.right + margin;
-        float sqTop = textRect.top + (txtH - sqSize) * 0.5f;
-        g_UIButtonRect = RectangleArea(sqLeft, sqTop, sqLeft + sqSize, sqTop + sqSize);
-
-        bool hovered = pointInRect(uiMouseX, uiMouseY, g_UIButtonRect);
-        Color sqFill = hovered ? Color(1.0f, 1.0f, 1.0f, 1.0f) : Color(1.0f, 1.0f, 1.0f, 0.95f);
-        context->fillRectangle(g_UIButtonRect, sqFill, 0.0f);
-        context->drawRectangle(g_UIButtonRect, Color(0.0f, 0.0f, 0.0f, hovered ? 1.0f : 0.8f), 1.0f, 0);
-
-        
+            // Off: render nothing
+        }   
     }
 
     __int64 result = 0;
@@ -644,7 +459,7 @@ void initializeHooks() {
 }
 
 void initialize() {
-    createConsole();
+    //createConsole();
     scanSignatures();
     loadLists();
     initializeHooks();

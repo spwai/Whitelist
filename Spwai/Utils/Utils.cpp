@@ -177,33 +177,3 @@ bool isSpecialName(const std::string& sanitizedName) {
            sanitizedName == "ims wet fmbyy" || sanitizedName == "vzwri" || sanitizedName == "vzwra" || 
            sanitizedName == "yvmli";
 }
-
-bool pointInRect(float x, float y, const RectangleArea& r) {
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-}
-
-void clampToRect(float& x, float& y, const RectangleArea& r) {
-    if (x < r.left) x = r.left;
-    if (x > r.right) x = r.right;
-    if (y < r.top) y = r.top;
-    if (y > r.bottom) y = r.bottom;
-}
-
-void mapMouseToUI(float rawX, float rawY, const RectangleArea& fullRect, float& outX, float& outY) {
-    float fullWidth = fullRect.right - fullRect.left;
-    float fullHeight = fullRect.bottom - fullRect.top;
-    outX = rawX;
-    outY = rawY;
-    bool outside = (rawX < fullRect.left) || (rawX > fullRect.right) || (rawY < fullRect.top) || (rawY > fullRect.bottom);
-    if (outside) {
-        const float int16Max = 32767.0f;
-        const float int16Min = -32768.0f;
-        float nx = (rawX - int16Min) / (int16Max - int16Min);
-        float ny = (rawY - int16Min) / (int16Max - int16Min);
-        if (nx >= -0.5f && nx <= 1.5f && ny >= -0.5f && ny <= 1.5f) {
-            outX = fullRect.left + nx * fullWidth;
-            outY = fullRect.top + ny * fullHeight;
-        }
-    }
-    clampToRect(outX, outY, fullRect);
-}
