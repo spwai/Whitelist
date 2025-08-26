@@ -37,6 +37,9 @@ NametagObject g_OriginalNametagObject = nullptr;
 MinecraftUIRenderContextFunc g_MinecraftUIRenderContext = nullptr;
 MinecraftUIRenderContextFunc g_OriginalMinecraftUIRenderContext = nullptr;
 
+uintptr_t g_RenderCtxCallAddr = 0;
+unsigned char g_RenderCtxOriginalCallBytes[5] = {0};
+
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
