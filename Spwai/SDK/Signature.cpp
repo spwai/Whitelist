@@ -20,8 +20,6 @@ extern NametagObject g_NametagObject;
 extern NametagObject g_OriginalNametagObject;
 extern MinecraftUIRenderContextFunc g_MinecraftUIRenderContext;
 extern MinecraftUIRenderContextFunc g_OriginalMinecraftUIRenderContext;
-extern uintptr_t g_RenderCtxCallAddr;
-extern unsigned char g_RenderCtxOriginalCallBytes[5];
 
 void scanSignatures() {
     std::cout << "Scanning for signatures..." << std::endl;
@@ -85,19 +83,14 @@ void scanSignatures() {
         }
     }
     
-    std::string_view uiRenderCtxSig = "E8 ?? ?? ?? ?? 48 8B 44 24 50 48 8D 4C 24 50 48 8B 80 D8 00 00 00";
+    std::string_view uiRenderCtxSig = "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 78 FD FF FF 48 81 EC 50 03 00 00 0F 29 70 B8 0F 29 78 A8 48";
     
     auto uiRenderCtxSignature = hat::parse_signature(uiRenderCtxSig);
     if (uiRenderCtxSignature.has_value()) {
         auto uiRenderCtxResult = hat::find_pattern(uiRenderCtxSignature.value(), ".text");
         
         if (uiRenderCtxResult.has_result()) {
-            uintptr_t callAddr = reinterpret_cast<uintptr_t>(uiRenderCtxResult.get());
-            g_RenderCtxCallAddr = callAddr;
-            memcpy(g_RenderCtxOriginalCallBytes, reinterpret_cast<void*>(callAddr), 5);
-            uintptr_t rel = *reinterpret_cast<int32_t*>(callAddr + 1);
-            uintptr_t target = callAddr + 5 + rel;
-            g_MinecraftUIRenderContext = reinterpret_cast<MinecraftUIRenderContextFunc>(target);
+            g_MinecraftUIRenderContext = reinterpret_cast<MinecraftUIRenderContextFunc>(uiRenderCtxResult.get());
             g_OriginalMinecraftUIRenderContext = g_MinecraftUIRenderContext;
             std::cout << "MinecraftUIRenderContext found" << std::endl;
         } else {
