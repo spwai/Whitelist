@@ -99,7 +99,7 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             if (now - g_LastMmbClickMs <= 500) {
                 g_NametagColorsEnabled = !g_NametagColorsEnabled;
                 g_LastMmbClickMs = 0;
-            } else if (now - g_LastMmbClickMs <= 850) {
+            } else if (now - g_LastMmbClickMs <= 1000) {
                 std::cout << "reloading server list..." << std::endl;
                 loadLists();
                 g_LastMmbClickMs = 0;
@@ -318,7 +318,7 @@ void initializeHooks() {
 }
 
 void initialize() {
-    createConsole();
+    //createConsole();
     if (!checkVersionAndExit()) {
         return;
     }
