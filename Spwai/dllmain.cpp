@@ -37,10 +37,6 @@ NametagObject g_OriginalNametagObject = nullptr;
 MinecraftUIRenderContextFunc g_MinecraftUIRenderContext = nullptr;
 MinecraftUIRenderContextFunc g_OriginalMinecraftUIRenderContext = nullptr;
 
-uintptr_t g_RenderCtxCallAddr = 0;
-unsigned char g_RenderCtxOriginalCallBytes[5] = {0};
-MinecraftUIRenderContextFunc g_RenderCtxOriginalTarget = nullptr;
-
 std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
@@ -91,7 +87,7 @@ __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3
                         if (isInList(sanitizedName, g_msrPlayers)) {
                             g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
                         } else {
-                            g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
+                            g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_msrPlayers.end());
                             g_msrPlayers.push_back(sanitizedName);
                         }
                     }
@@ -271,7 +267,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     return result;
 }
 
-__int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
+__int64 __fastcall hookedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
     if (a2) {
         MinecraftUIRenderContext* context = reinterpret_cast<MinecraftUIRenderContext*>(a2);
 
@@ -333,29 +329,7 @@ __int64 __fastcall wrappedMinecraftUIRenderContext(__int64 a1, __int64 a2) {
         }   
     }
 
-    __int64 result = 0;
-    if (g_RenderCtxOriginalTarget) {
-        result = g_RenderCtxOriginalTarget(a1, a2);
-    }
-    return result;
-}
-
-static bool writeRelativeCall(uintptr_t callAddr, void* newTarget) {
-    DWORD oldProt;
-    if (!VirtualProtect(reinterpret_cast<void*>(callAddr), 5, PAGE_EXECUTE_READWRITE, &oldProt)) return false;
-    int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(newTarget) - (callAddr + 5));
-    unsigned char bytes[5] = { 0xE8, 0, 0, 0, 0 };
-    memcpy(&bytes[1], &rel, sizeof(rel));
-    memcpy(reinterpret_cast<void*>(callAddr), bytes, 5);
-    DWORD tmp; VirtualProtect(reinterpret_cast<void*>(callAddr), 5, oldProt, &tmp);
-    return true;
-}
-
-static void restoreOriginalCall(uintptr_t callAddr, const unsigned char original[5]) {
-    DWORD oldProt;
-    if (!VirtualProtect(reinterpret_cast<void*>(callAddr), 5, PAGE_EXECUTE_READWRITE, &oldProt)) return;
-    memcpy(reinterpret_cast<void*>(callAddr), original, 5);
-    DWORD tmp; VirtualProtect(reinterpret_cast<void*>(callAddr), 5, oldProt, &tmp);
+    return g_OriginalMinecraftUIRenderContext(a1, a2);
 }
 
 void createConsole() {
@@ -398,14 +372,16 @@ void initializeHooks() {
             }
         } else {
             std::cout << "Failed to create NametagObject hook" << std::endl;
-        }
+            }
     }
 
-    if (g_RenderCtxCallAddr && g_RenderCtxOriginalTarget) {
-        if (!writeRelativeCall(g_RenderCtxCallAddr, reinterpret_cast<void*>(&wrappedMinecraftUIRenderContext))) {
-            std::cout << "Failed to patch UI callsite" << std::endl;
+    if (g_MinecraftUIRenderContext) {
+        if (MH_CreateHook(g_MinecraftUIRenderContext, &hookedMinecraftUIRenderContext, reinterpret_cast<LPVOID*>(&g_OriginalMinecraftUIRenderContext)) == MH_OK) {
+            if (MH_EnableHook(g_MinecraftUIRenderContext) != MH_OK) {
+                std::cout << "Failed to enable MinecraftUIRenderContext hook" << std::endl;
+            }
         } else {
-            std::cout << "UI callsite patched to wrapper" << std::endl;
+            std::cout << "Failed to create MinecraftUIRenderContext hook" << std::endl;
         }
     }
 }
@@ -420,10 +396,6 @@ void cleanup() {
     if (g_Console) {
         fclose(g_Console);
         g_Console = nullptr;
-    }
-    
-    if (g_RenderCtxCallAddr) {
-        restoreOriginalCall(g_RenderCtxCallAddr, g_RenderCtxOriginalCallBytes);
     }
     
     MH_Uninitialize();

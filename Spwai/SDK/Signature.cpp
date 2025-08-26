@@ -18,9 +18,8 @@ extern MouseDeviceFeed g_MouseDeviceFeed;
 extern MouseDeviceFeed g_OriginalMouseDeviceFeed;
 extern NametagObject g_NametagObject;
 extern NametagObject g_OriginalNametagObject;
-extern uintptr_t g_RenderCtxCallAddr;
-extern unsigned char g_RenderCtxOriginalCallBytes[5];
-extern MinecraftUIRenderContextFunc g_RenderCtxOriginalTarget;
+extern MinecraftUIRenderContextFunc g_MinecraftUIRenderContext;
+extern MinecraftUIRenderContextFunc g_OriginalMinecraftUIRenderContext;
 
 void scanSignatures() {
     std::cout << "Scanning for signatures..." << std::endl;
@@ -84,21 +83,18 @@ void scanSignatures() {
         }
     }
     
-    {
-        std::string_view callsiteSig = "E8 ?? ?? ?? ?? 48 8B 44 24 50 48 8D 4C 24 50 48 8B 80 D8 00 00 00";
-        auto sigParsed = hat::parse_signature(callsiteSig);
-        if (sigParsed.has_value()) {
-            auto sigResult = hat::find_pattern(sigParsed.value(), ".text");
-            if (sigResult.has_result()) {
-                g_RenderCtxCallAddr = reinterpret_cast<uintptr_t>(sigResult.get());
-                memcpy(g_RenderCtxOriginalCallBytes, reinterpret_cast<void*>(g_RenderCtxCallAddr), 5);
-                uintptr_t rel = *reinterpret_cast<int32_t*>(g_RenderCtxCallAddr + 1);
-                uintptr_t target = g_RenderCtxCallAddr + 5 + rel;
-                g_RenderCtxOriginalTarget = reinterpret_cast<MinecraftUIRenderContextFunc>(target);
-                std::cout << "MinecraftUIRenderContext found" << std::endl;
-            } else {
-                std::cout << "MinecraftUIRenderContext not found" << std::endl;
-            }
+    std::string_view uiRenderCtxSig = "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 78 FD FF FF 48 81 EC 50 03 00 00 0F 29 70 B8 0F 29 78 A8 48";
+    
+    auto uiRenderCtxSignature = hat::parse_signature(uiRenderCtxSig);
+    if (uiRenderCtxSignature.has_value()) {
+        auto uiRenderCtxResult = hat::find_pattern(uiRenderCtxSignature.value(), ".text");
+        
+        if (uiRenderCtxResult.has_result()) {
+            g_MinecraftUIRenderContext = reinterpret_cast<MinecraftUIRenderContextFunc>(uiRenderCtxResult.get());
+            g_OriginalMinecraftUIRenderContext = g_MinecraftUIRenderContext;
+            std::cout << "MinecraftUIRenderContext found" << std::endl;
+        } else {
+            std::cout << "MinecraftUIRenderContext not found" << std::endl;
         }
     }
 }
