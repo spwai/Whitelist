@@ -327,6 +327,10 @@ void initializeHooks() {
 }
 
 void initialize() {
+    createConsole();
+    if (!checkVersionAndExit()) {
+        return;
+    }
     scanSignatures();
     loadLists();
     initializeHooks();

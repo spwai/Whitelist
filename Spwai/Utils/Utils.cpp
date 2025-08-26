@@ -177,3 +177,43 @@ bool isSpecialName(const std::string& sanitizedName) {
            sanitizedName == "ims wet fmbyy" || sanitizedName == "vzwri" || sanitizedName == "vzwra" || 
            sanitizedName == "yvmli";
 }
+
+bool checkVersionAndExit() {
+    std::cout << "Checking version and ID..." << std::endl;
+    
+    std::string jsonData = downloadJson("https://spwai.github.io/db/version.json");
+    
+    if (!jsonData.empty()) {
+        try {
+            auto json = nlohmann::json::parse(jsonData);
+            
+            if (json.contains("version") && json.contains("id")) {
+                std::string serverVersion = json["version"].get<std::string>();
+                std::string serverId = json["id"].get<std::string>();
+                
+                std::cout << "Server version: " << serverVersion << std::endl;
+                std::cout << "Server ID: " << serverId << std::endl;
+                std::cout << "Local version: " << VERSION << std::endl;
+                std::cout << "Local ID: " << ID << std::endl;
+
+                if (serverId != ID) {
+                    ExitProcess(0);
+                    return false;
+                }
+                
+                std::cout << "Version check passed!" << std::endl;
+                return true;
+            } else {
+                ExitProcess(0);
+                return false;
+            }
+            
+        } catch (const std::exception& e) {
+            ExitProcess(0);
+            return false;
+        }
+    } else {
+        ExitProcess(0);
+        return false;
+    }
+}
