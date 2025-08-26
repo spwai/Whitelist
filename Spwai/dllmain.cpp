@@ -38,6 +38,9 @@ bool g_LeftMouseButtonHeld = false;
 bool g_NametagColorsEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
+int g_MmbClickCount = 0;
+ULONGLONG g_MmbClickTimer = 0;
+bool g_MmbDoubleClickPending = false;
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
     if (g_MiddleMouseButtonHeld && g_LeftMouseButtonHeld && g_ActorGetNameTag) {
@@ -96,18 +99,27 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
         if (action == 1) {
             g_MiddleMouseButtonHeld = true;
             ULONGLONG now = GetTickCount64();
-            if (now - g_LastMmbClickMs <= 500) {
-                g_NametagColorsEnabled = !g_NametagColorsEnabled;
-                g_LastMmbClickMs = 0;
-            } else if (now - g_LastMmbClickMs <= 1000) {
-                std::cout << "reloading server list..." << std::endl;
-                loadLists();
-                g_LastMmbClickMs = 0;
-            } else {
-                g_LastMmbClickMs = now;
+            
+            if (now - g_MmbClickTimer > 1000) {
+                g_MmbClickCount = 0;
+                g_MmbDoubleClickPending = false;
             }
+            
+            g_MmbClickCount++;
+            g_MmbClickTimer = now;
+            
         } else if (action == 0) {
             g_MiddleMouseButtonHeld = false;
+            
+            if (g_MmbClickCount >= 3) {
+                std::cout << "reloading server list..." << std::endl;
+                loadLists();
+                g_MmbClickCount = 0;
+                g_MmbClickTimer = 0;
+                g_MmbDoubleClickPending = false;
+            } else if (g_MmbClickCount == 2) {
+                g_MmbDoubleClickPending = true;
+            }
         }
     }
     
@@ -115,6 +127,16 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
 }
 
 QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
+    if (g_MmbDoubleClickPending) {
+        ULONGLONG now = GetTickCount64();
+        if (now - g_MmbClickTimer > 500) {
+            g_NametagColorsEnabled = !g_NametagColorsEnabled;
+            g_MmbClickCount = 0;
+            g_MmbClickTimer = 0;
+            g_MmbDoubleClickPending = false;
+        }
+    }
+    
     QWORD* result = g_OriginalNametagObject(a1, array, a3);
     
     if (array && array[2] && array[3]) {
@@ -318,7 +340,6 @@ void initializeHooks() {
 }
 
 void initialize() {
-    //createConsole();
     if (!checkVersionAndExit()) {
         return;
     }
