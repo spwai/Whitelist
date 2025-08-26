@@ -4,7 +4,7 @@
 #include <vector>
 
 #define VERSION "0.1.6"
-#define ID "9e190a1f546146c4d3a5a0be367d1ef4ec0d8a4d68536c16b7069197112d0825"
+#define ID "0de29395388e78e7b697a107b0b839ff18cd66707b55dfa5e0e4a3749d54a729"
 
 std::string sanitizeName(const std::string& name);
 std::string extractName(void** nameTag);

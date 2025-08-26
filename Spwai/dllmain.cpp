@@ -40,28 +40,15 @@ ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
 
 __int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
-    if (g_MiddleMouseButtonHeld && g_ActorGetNameTag) {
+    if (g_MiddleMouseButtonHeld && g_LeftMouseButtonHeld && g_ActorGetNameTag) {
         void** nameTag = g_ActorGetNameTag(actor);
         if (nameTag) {
             std::string actorName = extractName(nameTag);
             if (!actorName.empty()) {
                 std::string sanitizedName = sanitizeName(actorName);
                 if (!sanitizedName.empty()) {
-                    if (g_RightMouseButtonHeld && g_LeftMouseButtonHeld) {
-                        if (isInList(sanitizedName, g_qtPlayers)) {
-                            g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
-                        } else {
-                            g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
-                            g_qtPlayers.push_back(sanitizedName);
-                        }
-                    } else if (!g_RightMouseButtonHeld) {
-                        if (isInList(sanitizedName, g_msrPlayers)) {
-                            g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
-                        } else {
-                            g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
-                            g_msrPlayers.push_back(sanitizedName);
-                        }
-                    }
+                    g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+                    g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
                 }
             }
         }
@@ -111,6 +98,10 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             ULONGLONG now = GetTickCount64();
             if (now - g_LastMmbClickMs <= 500) {
                 g_NametagColorsEnabled = !g_NametagColorsEnabled;
+                g_LastMmbClickMs = 0;
+            } else if (now - g_LastMmbClickMs <= 850) {
+                std::cout << "reloading server list..." << std::endl;
+                loadLists();
                 g_LastMmbClickMs = 0;
             } else {
                 g_LastMmbClickMs = now;
