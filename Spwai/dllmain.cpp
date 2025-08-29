@@ -9,20 +9,21 @@
 #include <libhat.hpp>
 #include "Utils/Utils.hpp"
 #include "SDK/NametagEntry.hpp"
+#include "SDK/HitResult.hpp"
 
 typedef unsigned __int64 QWORD;
 
 FILE* g_Console = nullptr;
 HMODULE g_Module = nullptr;
 
-using GameModeAttack = __int64(__fastcall*)(__int64 gamemode, __int64 actor, char a3);
+using HitResultConstructor = __int64(__fastcall*)(__int64 a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5);
 using ActorGetNameTag = void** (__fastcall*)(__int64 actor);
 using MouseDeviceFeed = __int64(__fastcall*)(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8);
 using NametagObject = QWORD*(__fastcall*)(__int64 a1, QWORD* a2, __int64 a3);
 
-GameModeAttack g_GameModeAttack = nullptr;
+HitResultConstructor g_HitResultConstructor = nullptr;
 ActorGetNameTag g_ActorGetNameTag = nullptr;
-GameModeAttack g_OriginalGameModeAttack = nullptr;
+HitResultConstructor g_OriginalHitResultConstructor = nullptr;
 
 MouseDeviceFeed g_MouseDeviceFeed = nullptr;
 MouseDeviceFeed g_OriginalMouseDeviceFeed = nullptr;
@@ -34,59 +35,61 @@ std::vector<std::string> g_msrPlayers;
 std::vector<std::string> g_qtPlayers;
 
 bool g_RightMouseButtonHeld = false;
-bool g_LeftMouseButtonHeld = false;
-bool g_NametagColorsEnabled = true;
+bool g_RenderingEnabled = true;
 ULONGLONG g_LastMmbClickMs = 0;
 bool g_MiddleMouseButtonHeld = false;
 int g_MmbClickCount = 0;
 ULONGLONG g_MmbClickTimer = 0;
 bool g_MmbDoubleClickPending = false;
+bool g_MmbToggleProcessed = false;
 
-__int64 __fastcall hookedGameModeAttack(__int64 gamemode, __int64 actor, char a3) {
-    if (g_MiddleMouseButtonHeld && g_LeftMouseButtonHeld && g_ActorGetNameTag) {
-        void** nameTag = g_ActorGetNameTag(actor);
+__int64 __fastcall hookedHitResultConstructor(__int64 a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5) {
+    __int64 result = g_OriginalHitResultConstructor(a1, a2, a3, a4, a5);
+    
+    if (a4 != 0 && g_ActorGetNameTag) {
+        void** nameTag = g_ActorGetNameTag(a4);
         if (nameTag) {
             std::string actorName = extractName(nameTag);
             if (!actorName.empty()) {
                 std::string sanitizedName = sanitizeName(actorName);
-                if (!sanitizedName.empty()) {
-                    g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
-                    g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
+                
+                if (g_MiddleMouseButtonHeld && !g_MmbToggleProcessed) {
+                    if (!sanitizedName.empty()) {
+                        bool wasInMsr = isInList(sanitizedName, g_msrPlayers);
+                        bool wasInQt = isInList(sanitizedName, g_qtPlayers);
+                        
+                        if (wasInQt) {
+                        } else {
+                            if (wasInMsr) {
+                                g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+                            } else {
+                                g_msrPlayers.push_back(sanitizedName);
+                            }
+                        }
+                        
+                        g_MmbToggleProcessed = true;
+                        g_MmbClickCount = 0;
+                        g_MmbClickTimer = 0;
+                        g_MmbDoubleClickPending = false;
+                    }
+                    reinterpret_cast<HitResult*>(a1)->mType = HitResultType::NO_HIT;
+                    return result;
+                }
+                
+                if (!g_RightMouseButtonHeld && isInList(sanitizedName, g_msrPlayers)) {
+                    reinterpret_cast<HitResult*>(a1)->mType = HitResultType::NO_HIT;
+                    return result;
                 }
             }
         }
-        return 0;
-    }
-
-    if (g_RightMouseButtonHeld) {
-        return g_OriginalGameModeAttack(gamemode, actor, a3);
     }
     
-    if (g_ActorGetNameTag) {
-        void** nameTag = g_ActorGetNameTag(actor);
-        if (nameTag) {
-            std::string actorName = extractName(nameTag);
-            if (!actorName.empty()) {
-                std::string sanitizedName = sanitizeName(actorName);
-                if (isInList(sanitizedName, g_msrPlayers)) {
-                    return 0;
-                }
-            }
-        }
-    }
-    
-    return g_OriginalGameModeAttack(gamemode, actor, a3);
+    return result;
 }
 
+
+
 __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char action, __int16 mouseX, __int16 mouseY, __int16 movementX, __int16 movementY, char a8) {
-    if (button == 1) {
-        if (action == 1) {
-            g_LeftMouseButtonHeld = true;
-        } else if (action == 0) {
-            g_LeftMouseButtonHeld = false;
-        }
-    }
-    
     if (button == 2) {
         if (action == 1) {
             g_RightMouseButtonHeld = true;
@@ -110,9 +113,9 @@ __int64 __fastcall hookedMouseDeviceFeed(__int64 mouseDevice, char button, char 
             
         } else if (action == 0) {
             g_MiddleMouseButtonHeld = false;
+            g_MmbToggleProcessed = false;
             
             if (g_MmbClickCount >= 3) {
-                std::cout << "reloading server list..." << std::endl;
                 loadLists();
                 g_MmbClickCount = 0;
                 g_MmbClickTimer = 0;
@@ -130,7 +133,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
     if (g_MmbDoubleClickPending) {
         ULONGLONG now = GetTickCount64();
         if (now - g_MmbClickTimer > 500) {
-            g_NametagColorsEnabled = !g_NametagColorsEnabled;
+            g_RenderingEnabled = !g_RenderingEnabled;
             g_MmbClickCount = 0;
             g_MmbClickTimer = 0;
             g_MmbDoubleClickPending = false;
@@ -149,9 +152,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
             for (__int64 i = 0; i < numNametags; i++) {
                 ::NametagEntry* nametag = reinterpret_cast<::NametagEntry*>(startAddr + (i * sizeof(::NametagEntry)));
                 
-                if (!nametag) {
-                    continue;
-                }
+                if (!nametag) continue;
                 
                 try {
                     if (!IsBadReadPtr(&nametag->bgColor, sizeof(nametag->bgColor))) {
@@ -166,9 +167,7 @@ QWORD* __fastcall hookedNametagObject(__int64 a1, QWORD* array, __int64 a3) {
                         if (!actorName.empty()) {
                             std::string sanitizedName = sanitizeName(actorName);
                             
-                            if (!g_NametagColorsEnabled) {
-                                continue;
-                            }
+                            if (!g_RenderingEnabled) continue;
                             
                             if (isSpecialName(sanitizedName)) {
                                 ULONGLONG nowMs = GetTickCount64();
@@ -234,20 +233,18 @@ void createConsole() {
 }
 
 void scanSignatures() {
-    std::cout << "Scanning for signatures..." << std::endl;
+    std::string_view hitResultSig = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20 F2";
     
-    std::string_view attackSig = "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8D AC 24 A0 FD FF FF 48 81 EC 60 03 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 50 02 00 00 45";
-    
-    auto attackSignature = hat::parse_signature(attackSig);
-    if (attackSignature.has_value()) {
-        auto attackResult = hat::find_pattern(attackSignature.value(), ".text");
+    auto hitResultSignature = hat::parse_signature(hitResultSig);
+    if (hitResultSignature.has_value()) {
+        auto hitResultResult = hat::find_pattern(hitResultSignature.value(), ".text");
         
-        if (attackResult.has_result()) {
-            g_GameModeAttack = reinterpret_cast<GameModeAttack>(attackResult.get());
-            g_OriginalGameModeAttack = g_GameModeAttack;
-            std::cout << "GameMode::attack found" << std::endl;
+        if (hitResultResult.has_result()) {
+            g_HitResultConstructor = reinterpret_cast<HitResultConstructor>(hitResultResult.get());
+            g_OriginalHitResultConstructor = g_HitResultConstructor;
+            std::cout << "HitResult constructor found" << std::endl;
         } else {
-            std::cout << "GameMode::attack not found" << std::endl;
+            std::cout << "HitResult constructor not found" << std::endl;
         }
     }
     
@@ -302,15 +299,14 @@ void initializeHooks() {
         return;
     }
     
-    if (g_GameModeAttack) {
-        if (MH_CreateHook(g_GameModeAttack, &hookedGameModeAttack, reinterpret_cast<LPVOID*>(&g_OriginalGameModeAttack)) == MH_OK) {
-            if (MH_EnableHook(g_GameModeAttack) == MH_OK) {
-                
+    if (g_HitResultConstructor) {
+        if (MH_CreateHook(g_HitResultConstructor, &hookedHitResultConstructor, reinterpret_cast<LPVOID*>(&g_OriginalHitResultConstructor)) == MH_OK) {
+                            if (MH_EnableHook(g_HitResultConstructor) == MH_OK) {
             } else {
-                std::cout << "Failed to enable GameMode::attack hook" << std::endl;
+                std::cout << "Failed to enable HitResult::hitResult hook" << std::endl;
             }
         } else {
-            std::cout << "Failed to create GameMode::attack hook" << std::endl;
+            std::cout << "Failed to create HitResult::hitResult hook" << std::endl;
         }
     }
     

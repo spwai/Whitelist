@@ -50,9 +50,7 @@ std::string extractName(void** nameTag) {
     if (IsBadReadPtr(nameTag, sizeof(void*)) == FALSE && *nameTag) {
         uintptr_t ptrValue = reinterpret_cast<uintptr_t>(*nameTag);
         
-        if (ptrValue < 0x1000) {
-            return "";
-        }
+        if (ptrValue < 0x1000) return "";
         
         if (ptrValue > 0x1000000000000ULL) {
             std::string name;
@@ -86,18 +84,14 @@ std::string extractName(void** nameTag) {
                 for (int i = 0; i < 8; i++) {
                     char c = static_cast<char>((wordData >> (i * 8)) & 0xFF);
                     if (c == 0) {
-                        if (name.length() > 0) {
-                            return name;
-                        }
+                        if (name.length() > 0) return name;
                         break;
                     }
                     name += c;
                 }
             }
 
-            if (name.length() > 0) {
-                return name;
-            }
+            if (name.length() > 0) return name;
         }
     }
     
@@ -130,8 +124,6 @@ std::string downloadJson(const std::string& url) {
 }
 
 void loadLists() {
-    std::cout << "Loading player lists from database..." << std::endl;
-    
     std::string jsonData = downloadJson("https://spwai.github.io/db/igns.json");
     
     if (!jsonData.empty()) {
@@ -179,8 +171,6 @@ bool isSpecialName(const std::string& sanitizedName) {
 }
 
 bool checkVersionAndExit() {
-    std::cout << "Checking version and ID..." << std::endl;
-    
     std::string jsonData = downloadJson("https://spwai.github.io/db/version.json");
     
     if (!jsonData.empty()) {
