@@ -53,20 +53,35 @@ __int64 __fastcall hookedHitResultConstructor(__int64 a1, __int64 a2, __int64 a3
 			if (!actorName.empty()) {
 				std::string sanitizedName = sanitizeName(actorName);
 
-				if (g_MiddleMouseButtonHeld && !g_MmbToggleProcessed) {
+				if (g_RightMouseButtonHeld && g_MiddleMouseButtonHeld && !g_MmbToggleProcessed) {
+					if (!sanitizedName.empty()) {
+						bool wasInQt = isInList(sanitizedName, g_qtPlayers);
+						
+						if (wasInQt) {
+							g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
+						} else {
+							g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+							g_qtPlayers.push_back(sanitizedName);
+						}
+
+						g_MmbToggleProcessed = true;
+						g_MmbClickCount = 0;
+						g_MmbClickTimer = 0;
+						g_MmbDoubleClickPending = false;
+					}
+					reinterpret_cast<HitResult*>(a1)->mType = HitResultType::NO_HIT;
+					return result;
+				}
+
+				if (g_MiddleMouseButtonHeld && !g_RightMouseButtonHeld && !g_MmbToggleProcessed) {
 					if (!sanitizedName.empty()) {
 						bool wasInMsr = isInList(sanitizedName, g_msrPlayers);
-						bool wasInQt = isInList(sanitizedName, g_qtPlayers);
-
-						if (wasInQt) {
-						}
-						else {
-							if (wasInMsr) {
-								g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
-							}
-							else {
-								g_msrPlayers.push_back(sanitizedName);
-							}
+						
+						if (wasInMsr) {
+							g_msrPlayers.erase(std::remove(g_msrPlayers.begin(), g_msrPlayers.end(), sanitizedName), g_msrPlayers.end());
+						} else {
+							g_qtPlayers.erase(std::remove(g_qtPlayers.begin(), g_qtPlayers.end(), sanitizedName), g_qtPlayers.end());
+							g_msrPlayers.push_back(sanitizedName);
 						}
 
 						g_MmbToggleProcessed = true;
