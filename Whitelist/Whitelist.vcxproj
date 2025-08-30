@@ -111,14 +111,14 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat\include;C:\Users\spwai\source\repos\Spwai\Spwai\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\spwai\source\repos\Whitelist\Whitelist\lib\libhat\include;C:\Users\spwai\source\repos\Whitelist\Whitelist\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalLibraryDirectories>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat\build\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>C:\Users\spwai\source\repos\Whitelist\Whitelist\lib\libhat.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -132,14 +132,14 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat\include;C:\Users\spwai\source\repos\Spwai\Spwai\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\spwai\source\repos\Whitelist\Whitelist\lib\libhat\include;C:\Users\spwai\source\repos\Whitelist\Whitelist\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalLibraryDirectories>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat\build\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>C:\Users\spwai\source\repos\Spwai\Spwai\lib\libhat.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>C:\Users\spwai\source\repos\Whitelist\Whitelist\lib\libhat.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
