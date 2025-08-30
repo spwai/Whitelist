@@ -229,7 +229,7 @@ void createConsole() {
     AllocConsole();
     freopen_s(&g_Console, "CONOUT$", "w", stdout);
     freopen_s(&g_Console, "CONIN$", "r", stdin);
-    SetConsoleTitleA("Spwai");
+    SetConsoleTitleA("Whitelist");
 }
 
 void scanSignatures() {

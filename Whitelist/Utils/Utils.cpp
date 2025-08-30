@@ -100,7 +100,7 @@ std::string extractName(void** nameTag) {
 
 std::string downloadJson(const std::string& url) {
     std::string result;
-    HINTERNET hInternet = InternetOpenA("Spwai", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA("Whitelist", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
     
     if (hInternet) {
         HINTERNET hUrl = InternetOpenUrlA(hInternet, url.c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
