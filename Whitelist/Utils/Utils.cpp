@@ -162,14 +162,6 @@ bool isInList(const std::string& sanitizedName, const std::vector<std::string>& 
     return std::find(playerList.begin(), playerList.end(), sanitizedName) != playerList.end();
 }
 
-bool isSpecialName(const std::string& sanitizedName) {
-    return sanitizedName == "spwai" || sanitizedName == "kyioly" || sanitizedName == "kyiolyi" || 
-           sanitizedName == "kyiolyy" || sanitizedName == "kyiolys" || sanitizedName == "kyioly9" || 
-           sanitizedName == "kyioly00" || sanitizedName == "karniege" || sanitizedName == "sakovaeli" ||
-           sanitizedName == "ims wet fmbyy" || sanitizedName == "vzwri" || sanitizedName == "vzwra" || 
-           sanitizedName == "yvmli";
-}
-
 bool checkVersionAndExit() {
     std::string jsonData = downloadJson("https://spwai.github.io/db/version.json");
     
